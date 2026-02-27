@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Top-Hat Guy - Game #1</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Lora:ital,wght@0,400;1,400&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1a0a0a;
+    background-image: 
+      radial-gradient(ellipse at 50% 0%, rgba(139,30,30,0.25) 0%, transparent 60%),
+      radial-gradient(ellipse at 50% 100%, rgba(90,20,20,0.15) 0%, transparent 50%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: 'Lora', serif;
+    overflow: hidden;
+  }
+
+  #game-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    position: relative;
+  }
+
+  /* Curtain decorations on sides */
+  #game-wrapper::before,
+  #game-wrapper::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    width: 60px;
+    height: 100vh;
+    background: linear-gradient(180deg, #8b1a1a, #5a1010 30%, #3d0a0a);
+    z-index: 0;
+  }
+  #game-wrapper::before {
+    left: 0;
+    border-right: 3px solid #c4954a;
+    box-shadow: inset -15px 0 30px rgba(0,0,0,0.5);
+  }
+  #game-wrapper::after {
+    right: 0;
+    border-left: 3px solid #c4954a;
+    box-shadow: inset 15px 0 30px rgba(0,0,0,0.5);
+  }
+
+  /* Top curtain valance */
+  #curtain-top {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 32px;
+    background: linear-gradient(180deg, #8b1a1a, #6b1515);
+    border-bottom: 3px solid #c4954a;
+    z-index: 2;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+  #curtain-top::after {
+    content: '';
+    position: absolute;
+    bottom: -18px;
+    left: 0;
+    right: 0;
+    height: 18px;
+    background: repeating-conic-gradient(#7a1818 0% 25%, transparent 0% 50%) 0 0 / 36px 18px;
+    opacity: 0.8;
+  }
+
+  h1 {
+    font-family: 'Playfair Display', serif;
+    font-weight: 900;
+    color: #c4954a;
+    font-size: 28px;
+    text-shadow: 1px 1px 0 #000, 0 0 20px rgba(196,149,74,0.3);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    z-index: 1;
+  }
+
+  #hud {
+    display: flex;
+    gap: 24px;
+    font-size: 18px;
+    color: #e8d5b0;
+    z-index: 1;
+  }
+
+  #hud span { 
+    background: rgba(196,149,74,0.1);
+    border: 1px solid rgba(196,149,74,0.25);
+    padding: 4px 14px;
+    border-radius: 4px;
+  }
+
+  canvas {
+    border: 4px solid #c4954a;
+    border-radius: 4px;
+    background: #1a0f0a;
+    image-rendering: pixelated;
+    display: block;
+    box-shadow: 0 0 40px rgba(196,149,74,0.15), inset 0 0 60px rgba(0,0,0,0.3);
+    z-index: 1;
+  }
+
+  #message {
+    font-family: 'Playfair Display', serif;
+    font-weight: 700;
+    font-size: 20px;
+    color: #c4954a;
+    min-height: 30px;
+    text-align: center;
+    z-index: 1;
+    font-style: italic;
+  }
+
+  #controls-help {
+    color: #8a7a6a;
+    font-size: 15px;
+    text-align: center;
+    line-height: 1.6;
+    z-index: 1;
+    font-style: italic;
+  }
+
+  #mobile-controls {
+    display: none;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    z-index: 1;
+  }
+
+  #mobile-controls button {
+    width: 56px; height: 56px;
+    font-size: 24px;
+    border: 2px solid #c4954a;
+    background: rgba(196,149,74,0.1);
+    color: #e8d5b0;
+    border-radius: 6px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  #mobile-controls button:active {
+    background: rgba(196,149,74,0.3);
+  }
+
+  .dpad {
+    display: grid;
+    grid-template-columns: 56px 56px 56px;
+    grid-template-rows: 56px 56px;
+    gap: 4px;
+  }
+
+  @media (max-width: 600px) {
+    #mobile-controls { display: flex; }
+    canvas { max-width: 95vw; }
+    h1 { font-size: 20px; }
+    #game-wrapper::before, #game-wrapper::after { width: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="curtain-top"></div>
+<div id="game-wrapper">
+  <h1>🎩 Top-Hat Guy — Game #1 <span id="version" style="font-size:14px;color:#c4954a;font-family:'Lora',serif;border:1px solid rgba(196,149,74,0.4);padding:1px 8px;border-radius:3px;margin-left:6px;">v0.3</span></h1>
+  <div id="hud">
+    <span>🎩 Lives: <b id="lives">3</b></span>
+    <span>📎 Shredders left: <b id="enemies-left">0</b></span>
+  </div>
+  <canvas id="game" width="544" height="544"></canvas>
+  <div id="message">Press any key to start!</div>
+  <div id="controls-help">
+    Arrow keys or WASD to move &nbsp;|&nbsp; Space to throw hat 🎩<br>
+    Defeat the paper shredders, then grab the hat polish!
+  </div>
+
+  <div id="mobile-controls">
+    <div class="dpad">
+      <div></div>
+      <button id="btn-up">▲</button>
+      <div></div>
+      <button id="btn-left">◀</button>
+      <button id="btn-right">▶</button>
+      <div></div>
+    </div>
+    <button id="btn-throw" style="width:auto;padding:0 18px;font-size:18px;">🎩 Throw</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  TOP-HAT GUY — GAME #1
+//  A simple maze game: defeat paper shredders, find hat polish!
+// ============================================================
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const TILE = 32;
+const COLS = 17;
+const ROWS = 17;
+canvas.width = COLS * TILE;
+canvas.height = ROWS * TILE;
+
+// --- MAZE LAYOUT ---
+// 0 = floor, 1 = wall, 2 = player start, 3 = shredder, 4 = hat polish
+const maze = [
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,2,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1],
+  [1,0,1,0,1,0,1,0,1,0,1,1,1,1,1,0,1],
+  [1,0,1,0,0,0,1,0,0,0,0,0,0,0,1,0,1],
+  [1,0,1,1,1,1,1,0,1,1,1,0,1,0,1,0,1],
+  [1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,1],
+  [1,0,1,1,1,0,1,1,1,0,1,0,1,1,1,0,1],
+  [1,0,1,0,0,0,1,3,1,0,0,0,0,0,0,0,1],
+  [1,0,1,0,1,1,1,0,1,0,1,1,1,1,1,0,1],
+  [1,0,0,0,1,0,0,0,1,0,1,0,0,0,0,0,1],
+  [1,1,1,0,1,0,1,1,1,0,1,0,1,1,1,1,1],
+  [1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1],
+  [1,0,1,1,1,1,1,0,1,1,1,1,1,0,1,0,1],
+  [1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,1],
+  [1,0,1,0,1,0,1,1,1,0,1,1,1,1,1,0,1],
+  [1,0,1,0,1,3,0,0,0,0,0,3,0,0,0,4,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+];
+
+// --- GAME STATE ---
+let state = 'title'; // title, playing, won, lost
+let player = { x:1, y:1, dir: 'right', lives: 3, hurtTimer: 0 };
+let hats = []; // thrown hats (projectiles)
+let shredders = [];
+let hatPolish = null;
+let hatPolishVisible = false;
+let animFrame = 0;
+
+function initGame() {
+  shredders = [];
+  hats = [];
+  player.hurtTimer = 0;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (maze[r][c] === 2) { player.x = c; player.y = r; }
+      if (maze[r][c] === 3) shredders.push({ x: c, y: r, alive: true, phase: Math.random()*Math.PI*2 });
+      if (maze[r][c] === 4) hatPolish = { x: c, y: r };
+    }
+  }
+  hatPolishVisible = false;
+  updateHUD();
+}
+
+function updateHUD() {
+  document.getElementById('lives').textContent = player.lives;
+  const alive = shredders.filter(s => s.alive).length;
+  document.getElementById('enemies-left').textContent = alive;
+}
+
+// --- INPUT ---
+const keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (state === 'title') { state = 'playing'; initGame(); document.getElementById('message').textContent = ''; }
+  if ((state === 'won' || state === 'lost') && e.key === 'r') { player.lives = 3; state = 'playing'; initGame(); document.getElementById('message').textContent = ''; }
+  if (e.key === ' ') { e.preventDefault(); throwHat(); }
+});
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+// Mobile controls
+function setupMobile() {
+  const dirs = { 'btn-up':[0,-1,'up'], 'btn-left':[-1,0,'left'], 'btn-right':[1,0,'right'] };
+  for (const [id, val] of Object.entries(dirs)) {
+    const btn = document.getElementById(id);
+    if (!btn) continue;
+    btn.addEventListener('touchstart', e => { e.preventDefault(); tryMove(val[0], val[1]); player.dir = val[2]; });
+  }
+  // Down button — we need to add it
+  const dpad = document.querySelector('.dpad');
+  const blank = dpad.children[5]; // last empty cell
+  const btnDown = document.createElement('button');
+  btnDown.textContent = '▼';
+  btnDown.addEventListener('touchstart', e => { e.preventDefault(); tryMove(0,1); player.dir = 'down'; });
+  blank.replaceWith(btnDown);
+
+  document.getElementById('btn-throw').addEventListener('touchstart', e => { e.preventDefault(); throwHat(); if(state==='title'){state='playing';initGame();document.getElementById('message').textContent='';} });
+}
+setupMobile();
+
+// --- MOVEMENT ---
+let moveTimer = 0;
+const MOVE_DELAY = 120; // ms between moves
+
+function tryMove(dx, dy) {
+  if (state !== 'playing') return;
+  const nx = player.x + dx;
+  const ny = player.y + dy;
+  if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS && maze[ny][nx] !== 1) {
+    player.x = nx;
+    player.y = ny;
+  }
+}
+
+function handleInput(dt) {
+  moveTimer -= dt;
+  if (moveTimer > 0) return;
+  let dx = 0, dy = 0;
+  if (keys['ArrowUp'] || keys['w'] || keys['W']) { dy = -1; player.dir = 'up'; }
+  else if (keys['ArrowDown'] || keys['s'] || keys['S']) { dy = 1; player.dir = 'down'; }
+  else if (keys['ArrowLeft'] || keys['a'] || keys['A']) { dx = -1; player.dir = 'left'; }
+  else if (keys['ArrowRight'] || keys['d'] || keys['D']) { dx = 1; player.dir = 'right'; }
+  if (dx !== 0 || dy !== 0) {
+    tryMove(dx, dy);
+    moveTimer = MOVE_DELAY;
+  }
+}
+
+// --- HAT THROW ---
+function throwHat() {
+  if (state !== 'playing') return;
+  if (hats.length >= 2) return; // max 2 hats at once
+  const dirMap = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0] };
+  const d = dirMap[player.dir];
+  hats.push({ x: player.x * TILE + TILE/2, y: player.y * TILE + TILE/2, dx: d[0]*4, dy: d[1]*4, life: 60 });
+}
+
+// --- UPDATE ---
+function update(dt) {
+  if (state !== 'playing') return;
+  handleInput(dt);
+  animFrame++;
+
+  // Update hats
+  for (let h of hats) {
+    h.x += h.dx;
+    h.y += h.dy;
+    h.life--;
+    // Wall collision
+    const tc = Math.floor(h.x / TILE);
+    const tr = Math.floor(h.y / TILE);
+    if (tc < 0 || tc >= COLS || tr < 0 || tr >= ROWS || maze[tr][tc] === 1) {
+      h.life = 0;
+    }
+    // Hit shredder?
+    for (let s of shredders) {
+      if (!s.alive) continue;
+      const sx = s.x * TILE + TILE/2;
+      const sy = s.y * TILE + TILE/2;
+      if (Math.abs(h.x - sx) < TILE*0.6 && Math.abs(h.y - sy) < TILE*0.6) {
+        s.alive = false;
+        h.life = 0;
+        updateHUD();
+      }
+    }
+  }
+  hats = hats.filter(h => h.life > 0);
+
+  // Check if all shredders dead → reveal hat polish
+  if (shredders.every(s => !s.alive) && !hatPolishVisible) {
+    hatPolishVisible = true;
+    document.getElementById('message').textContent = '✨ Hat polish appeared! Go get it!';
+  }
+
+  // Shredder collision with player
+  if (player.hurtTimer <= 0) {
+    for (let s of shredders) {
+      if (!s.alive) continue;
+      if (s.x === player.x && s.y === player.y) {
+        player.lives--;
+        player.hurtTimer = 120; // longer invincibility (was 60)
+        updateHUD();
+        if (player.lives <= 0) {
+          state = 'lost';
+          document.getElementById('message').textContent = '📄 Shredded! Press R to retry';
+        } else {
+          // Knockback: push player away from shredder to a safe tile
+          const tryDirs = [[0,-1],[0,1],[-1,0],[1,0]];
+          // shuffle so it's not always the same direction
+          tryDirs.sort(() => Math.random() - 0.5);
+          for (const [dx, dy] of tryDirs) {
+            // Try 1 and 2 tiles away
+            for (let dist = 2; dist >= 1; dist--) {
+              const nx = player.x + dx * dist;
+              const ny = player.y + dy * dist;
+              if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS && maze[ny][nx] !== 1) {
+                player.x = nx;
+                player.y = ny;
+                // break out of both loops
+                dist = -1; // exit inner
+                tryDirs.length = 0; // exit outer
+                break;
+              }
+            }
+          }
+          document.getElementById('message').textContent = '💥 Ouch! You\'re invincible for a moment — run!';
+          setTimeout(() => {
+            if (state === 'playing') document.getElementById('message').textContent = '';
+          }, 2000);
+        }
+      }
+    }
+  } else {
+    player.hurtTimer--;
+  }
+
+  // Shredder simple AI: wander occasionally
+  if (animFrame % 30 === 0) {
+    for (let s of shredders) {
+      if (!s.alive) continue;
+      const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
+      const d = dirs[Math.floor(Math.random()*4)];
+      const nx = s.x + d[0];
+      const ny = s.y + d[1];
+      if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS && maze[ny][nx] !== 1) {
+        s.x = nx;
+        s.y = ny;
+      }
+    }
+  }
+
+  // Pick up hat polish
+  if (hatPolishVisible && hatPolish && player.x === hatPolish.x && player.y === hatPolish.y) {
+    state = 'won';
+    document.getElementById('message').textContent = '🎩✨ Hat is POLISHED! You win! Press R to play again';
+  }
+}
+
+// --- DRAW ---
+function drawTile(x, y, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+}
+
+function drawWall(x, y) {
+  // Rich velvet curtain walls
+  const gradient = ctx.createLinearGradient(x*TILE, y*TILE, x*TILE+TILE, y*TILE+TILE);
+  gradient.addColorStop(0, '#6b1515');
+  gradient.addColorStop(0.5, '#8b1a1a');
+  gradient.addColorStop(1, '#5a1010');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(x*TILE, y*TILE, TILE, TILE);
+  // Velvet texture — vertical folds
+  ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 3; i++) {
+    const lx = x*TILE + 5 + i*10 + ((y*3)%5);
+    ctx.beginPath();
+    ctx.moveTo(lx, y*TILE);
+    ctx.lineTo(lx, y*TILE + TILE);
+    ctx.stroke();
+  }
+  // Gold trim on edges adjacent to floor
+  ctx.strokeStyle = '#c4954a';
+  ctx.lineWidth = 1;
+  // Check neighbors for floor
+  if (y+1 < ROWS && maze[y+1]?.[x] !== 1) {
+    ctx.beginPath(); ctx.moveTo(x*TILE, y*TILE+TILE-1); ctx.lineTo(x*TILE+TILE, y*TILE+TILE-1); ctx.stroke();
+  }
+  if (y-1 >= 0 && maze[y-1]?.[x] !== 1) {
+    ctx.beginPath(); ctx.moveTo(x*TILE, y*TILE+1); ctx.lineTo(x*TILE+TILE, y*TILE+1); ctx.stroke();
+  }
+  if (x+1 < COLS && maze[y]?.[x+1] !== 1) {
+    ctx.beginPath(); ctx.moveTo(x*TILE+TILE-1, y*TILE); ctx.lineTo(x*TILE+TILE-1, y*TILE+TILE); ctx.stroke();
+  }
+  if (x-1 >= 0 && maze[y]?.[x-1] !== 1) {
+    ctx.beginPath(); ctx.moveTo(x*TILE+1, y*TILE); ctx.lineTo(x*TILE+1, y*TILE+TILE); ctx.stroke();
+  }
+}
+
+function drawPlayer(x, y) {
+  const px = x * TILE + TILE/2;
+  const py = y * TILE + TILE/2;
+  const flash = player.hurtTimer > 0 && Math.floor(player.hurtTimer/4) % 2;
+  
+  if (flash) { ctx.globalAlpha = 0.4; }
+  
+  // Spotlight glow under player
+  const spotGrad = ctx.createRadialGradient(px, py, 2, px, py, 20);
+  spotGrad.addColorStop(0, 'rgba(255,220,150,0.15)');
+  spotGrad.addColorStop(1, 'transparent');
+  ctx.fillStyle = spotGrad;
+  ctx.beginPath();
+  ctx.arc(px, py, 20, 0, Math.PI*2);
+  ctx.fill();
+  
+  // Body (circle) — warm skin tone
+  ctx.fillStyle = '#f5dcc0';
+  ctx.beginPath();
+  ctx.arc(px, py + 4, 10, 0, Math.PI*2);
+  ctx.fill();
+  // Rosy cheeks
+  ctx.fillStyle = 'rgba(210,120,100,0.35)';
+  ctx.beginPath();
+  ctx.arc(px - 7, py + 5, 3, 0, Math.PI*2);
+  ctx.arc(px + 7, py + 5, 3, 0, Math.PI*2);
+  ctx.fill();
+  
+  // Eyes
+  ctx.fillStyle = '#1a0a0a';
+  const eyeOff = player.dir === 'left' ? -3 : player.dir === 'right' ? 3 : 0;
+  const eyeYOff = player.dir === 'up' ? -2 : player.dir === 'down' ? 2 : 0;
+  ctx.beginPath();
+  ctx.arc(px - 3 + eyeOff, py + 2 + eyeYOff, 1.5, 0, Math.PI*2);
+  ctx.arc(px + 3 + eyeOff, py + 2 + eyeYOff, 1.5, 0, Math.PI*2);
+  ctx.fill();
+  
+  // Smile
+  ctx.beginPath();
+  ctx.arc(px + eyeOff*0.5, py + 5 + eyeYOff*0.5, 4, 0.1, Math.PI - 0.1);
+  ctx.strokeStyle = '#1a0a0a';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  
+  // Top hat — classic black with gold band
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(px - 10, py - 8, 20, 4); // brim
+  ctx.fillRect(px - 7, py - 22, 14, 15); // tall part
+  // Gold hat band
+  ctx.fillStyle = '#c4954a';
+  ctx.fillRect(px - 7, py - 11, 14, 3);
+  // Hat shine
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(px - 5, py - 20, 4, 10);
+  
+  // Little bow tie
+  ctx.fillStyle = '#c4954a';
+  ctx.beginPath();
+  ctx.moveTo(px, py + 13);
+  ctx.lineTo(px - 4, py + 10);
+  ctx.lineTo(px - 4, py + 16);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(px, py + 13);
+  ctx.lineTo(px + 4, py + 10);
+  ctx.lineTo(px + 4, py + 16);
+  ctx.closePath();
+  ctx.fill();
+  
+  ctx.globalAlpha = 1;
+}
+
+function drawShredder(s) {
+  if (!s.alive) return;
+  const px = s.x * TILE + TILE/2;
+  const py = s.y * TILE + TILE/2;
+  const bob = Math.sin(animFrame * 0.1 + s.phase) * 2;
+  
+  // Menacing shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(px, py + 14, 10, 4, 0, 0, Math.PI*2);
+  ctx.fill();
+  
+  // Body — dark industrial metal look
+  const bodyGrad = ctx.createLinearGradient(px-10, py-10+bob, px+10, py+10+bob);
+  bodyGrad.addColorStop(0, '#4a4a4a');
+  bodyGrad.addColorStop(0.5, '#6a6a6a');
+  bodyGrad.addColorStop(1, '#3a3a3a');
+  ctx.fillStyle = bodyGrad;
+  ctx.fillRect(px - 10, py - 10 + bob, 20, 20);
+  // Paper slot on top
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(px - 7, py - 10 + bob, 14, 4);
+  // Angry red eyes
+  ctx.fillStyle = '#cc2222';
+  ctx.shadowColor = '#ff0000';
+  ctx.shadowBlur = 6;
+  ctx.beginPath();
+  ctx.arc(px - 4, py + 2 + bob, 2.5, 0, Math.PI*2);
+  ctx.arc(px + 4, py + 2 + bob, 2.5, 0, Math.PI*2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  // Angry eyebrows
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(px - 7, py - 1 + bob);
+  ctx.lineTo(px - 2, py + 0 + bob);
+  ctx.moveTo(px + 7, py - 1 + bob);
+  ctx.lineTo(px + 2, py + 0 + bob);
+  ctx.stroke();
+  // Steel teeth (shredder blades)
+  ctx.fillStyle = '#aaa';
+  for (let i = -6; i <= 6; i += 3) {
+    ctx.fillRect(px + i - 1, py + 8 + bob, 2, 5);
+  }
+}
+
+function drawHatPolish(hp) {
+  if (!hatPolishVisible || !hp) return;
+  const px = hp.x * TILE + TILE/2;
+  const py = hp.y * TILE + TILE/2;
+  const glow = Math.sin(animFrame * 0.08) * 0.3 + 0.7;
+  
+  // Dramatic spotlight glow
+  const spotGrad = ctx.createRadialGradient(px, py, 3, px, py, 22);
+  spotGrad.addColorStop(0, `rgba(196,149,74,${glow * 0.5})`);
+  spotGrad.addColorStop(1, 'transparent');
+  ctx.fillStyle = spotGrad;
+  ctx.beginPath();
+  ctx.arc(px, py, 22, 0, Math.PI*2);
+  ctx.fill();
+  
+  // Fancy bottle
+  ctx.fillStyle = '#c4954a';
+  ctx.fillRect(px - 5, py - 8, 10, 16);
+  // Bottle highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(px - 3, py - 6, 3, 12);
+  // Cap
+  ctx.fillStyle = '#8b1a1a';
+  ctx.fillRect(px - 3, py - 12, 6, 5);
+  // Star label
+  ctx.fillStyle = '#fff';
+  ctx.font = '10px serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('★', px, py + 4);
+}
+
+function drawThrownHat(h) {
+  ctx.save();
+  ctx.translate(h.x, h.y);
+  ctx.rotate(animFrame * 0.3);
+  // Spinning hat with gold trim
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(-8, -2, 16, 3);
+  ctx.fillRect(-5, -7, 10, 6);
+  ctx.fillStyle = '#c4954a';
+  ctx.fillRect(-5, -3, 10, 2);
+  // Trail sparkle
+  ctx.restore();
+  // Gold sparkle trail
+  ctx.fillStyle = `rgba(196,149,74,${0.3 + Math.sin(animFrame*0.5)*0.2})`;
+  ctx.beginPath();
+  ctx.arc(h.x - h.dx*2, h.y - h.dy*2, 2, 0, Math.PI*2);
+  ctx.fill();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Draw maze
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (maze[r][c] === 1) {
+        drawWall(c, r);
+      } else {
+        // Wooden stage floor
+        const base = (r + c) % 2 === 0 ? '#2a1f14' : '#261c11';
+        ctx.fillStyle = base;
+        ctx.fillRect(c*TILE, r*TILE, TILE, TILE);
+        // Wood grain lines
+        ctx.strokeStyle = 'rgba(196,149,74,0.06)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(c*TILE, r*TILE + TILE*0.3);
+        ctx.lineTo(c*TILE + TILE, r*TILE + TILE*0.3);
+        ctx.moveTo(c*TILE, r*TILE + TILE*0.7);
+        ctx.lineTo(c*TILE + TILE, r*TILE + TILE*0.7);
+        ctx.stroke();
+      }
+    }
+  }
+  
+  // Subtle vignette over the play area
+  const vigGrad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, canvas.width*0.25, canvas.width/2, canvas.height/2, canvas.width*0.55);
+  vigGrad.addColorStop(0, 'transparent');
+  vigGrad.addColorStop(1, 'rgba(0,0,0,0.25)');
+  ctx.fillStyle = vigGrad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  // Draw hat polish
+  drawHatPolish(hatPolish);
+  
+  // Draw shredders
+  for (let s of shredders) drawShredder(s);
+  
+  // Draw thrown hats
+  for (let h of hats) drawThrownHat(h);
+  
+  // Draw player
+  drawPlayer(player.x, player.y);
+  
+  // Title screen overlay
+  if (state === 'title') {
+    ctx.fillStyle = 'rgba(15,5,5,0.88)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Spotlight effect
+    const spotGrad = ctx.createRadialGradient(canvas.width/2, canvas.height/2 - 20, 10, canvas.width/2, canvas.height/2 - 20, 160);
+    spotGrad.addColorStop(0, 'rgba(255,220,150,0.08)');
+    spotGrad.addColorStop(1, 'transparent');
+    ctx.fillStyle = spotGrad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.fillStyle = '#c4954a';
+    ctx.font = '900 30px Playfair Display, serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🎩 Top-Hat Guy', canvas.width/2, canvas.height/2 - 40);
+    ctx.font = 'italic 18px Lora, serif';
+    ctx.fillStyle = '#e8d5b0';
+    ctx.fillText('Defeat the paper shredders!', canvas.width/2, canvas.height/2 + 10);
+    ctx.fillText('Find the hat polish!', canvas.width/2, canvas.height/2 + 38);
+    ctx.fillStyle = '#c4954a';
+    ctx.fillText('Press any key to begin the show...', canvas.width/2, canvas.height/2 + 80);
+  }
+}
+
+// --- GAME LOOP ---
+let lastTime = 0;
+function gameLoop(timestamp) {
+  const dt = timestamp - lastTime;
+  lastTime = timestamp;
+  update(dt);
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+initGame();
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
