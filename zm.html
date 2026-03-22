@@ -152,7 +152,13 @@
     <div class="win-emoji">🎉⭐🎉</div>
     <h2 class="win-title">Starry Found Her Way Home!</h2>
     <p class="win-score">Final Score: <b id="final-score">0</b></p>
-    <p class="win-flavor">The Astral Crystal opened a portal and Starry stepped through, her bunny and cupcake friends by her side. The forest is safe again!</p>
+    <p class="win-flavor">
+      The Astral Crystal shattered into a thousand sparkles and opened a magical portal.
+      Starry flew through the swirling light, her bunny and cupcake friends right behind her.
+      The enchanted forest glowed bright as the shadows faded away forever.
+      <br><br>
+      <em>Designed by Ziva & friend — powered by imagination! ✨</em>
+    </p>
     <button class="story-btn" style="margin-top:20px" onclick="location.reload()">Play Again ⭐</button>
   </div>
 </div>
@@ -302,7 +308,7 @@ function buildGame(THREE) {
     crystalGroup.add(gem);
   }
   crystalGroup.add(new THREE.PointLight("#ffdd00", 2, 12));
-  crystalGroup.position.set(0, terrainY(0, -18) + 3.5, -18);
+  crystalGroup.position.set(0, terrainY(0, -12) + 2.5, -12);
   crystalGroup.visible = false;
   scene.add(crystalGroup);
 
@@ -312,7 +318,7 @@ function buildGame(THREE) {
   const portalInner = new THREE.Mesh(new THREE.CircleGeometry(2.2, 32), new THREE.MeshBasicMaterial({ color: "#ddaaff", transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
   portal.add(portalInner);
   portal.add(new THREE.PointLight("#bb66ff", 3, 15));
-  portal.position.set(0, terrainY(0, -18) + 3.5, -22);
+  portal.position.set(0, terrainY(0, -10) + 4, -10);
   portal.visible = false;
   scene.add(portal);
 
@@ -440,6 +446,7 @@ function buildGame(THREE) {
     bunnyTalked:false, cupcakeTalked:false,
     followBunny:false, followCupcake:false,
     gameTime:0, facing:{ x:0, z:-1 }, won:false,
+    canFly:false, endSceneTimer:0,
     joyX:0, joyZ:0, touchJump:false, touchAttack:false
   };
 
@@ -502,7 +509,8 @@ function buildGame(THREE) {
       { l:"💚 Potions", v:gs.potions+"/5", bg:"#0a2a1a" },
       { l:"💰 Chests", v:gs.chests+"/3", bg:"#2a1a0a" },
       { l:"⚔️ Shadows", v:gs.shadowsDefeated+"/6", bg:"#2a0a2a" },
-    ];
+      gs.canFly ? { l:"🦋 Flying", v:"ON", bg:"#1a2a3a" } : null,
+    ].filter(Boolean);
     hud.innerHTML = items.map(h => `<div class="hud-pill" style="background:${h.bg}">${h.l}: ${h.v}</div>`).join("");
   }
 
@@ -511,24 +519,58 @@ function buildGame(THREE) {
     const allS = shadows.every(s => !s.userData.alive);
     if (allC && allS && !gs.crystalFound) {
       gs.crystalFound = true; crystalGroup.visible = true;
-      notify("✨ The Astral Crystal has appeared in the cave! Go find it! ✨");
+      notify("✨ The Astral Crystal appeared near the cave! Go find it! ✨", 5);
     }
-    if (gs.crystalFound && !gs.portalOpen) {
-      const dx = gs.px - crystalGroup.position.x, dz = gs.pz - crystalGroup.position.z;
-      if (dx * dx + dz * dz < 12) {
-        gs.portalOpen = true; portal.visible = true; gs.score += 200;
-        notify("🔮 The Astral Crystal opens a portal! Step through to go home! 🌟");
-      }
+  }
+
+  // End scene: camera slowly pulls up and away while Starry rises into portal
+  function runEndScene(dt) {
+    gs.endSceneTimer += dt;
+    const t = gs.endSceneTimer;
+
+    // Starry floats upward toward portal
+    starry.position.y += dt * 2.5;
+    starry.rotation.y += dt * 3;
+
+    // Sparkle burst around Starry
+    if (Math.random() < 0.3) {
+      shootSparkle(starry.position.x + (Math.random()-0.5)*2, starry.position.y + 1, starry.position.z + (Math.random()-0.5)*2, (Math.random()-0.5)*4, (Math.random()-0.5)*4);
     }
-    if (gs.portalOpen) {
-      const dx = gs.px - portal.position.x, dz = gs.pz - portal.position.z;
-      if (dx * dx + dz * dz < 8) {
-        gs.won = true; gs.score += 500;
-        notify("🎉 Starry found her way home! YOU WIN! 🎉");
-        document.getElementById("final-score").textContent = gs.score;
-        document.getElementById("win-screen").style.display = "flex";
-      }
+
+    // Camera pulls back and up
+    const camDist = 9 + t * 3;
+    const camH = 6 + t * 2;
+    camera.position.lerp(new THREE.Vector3(
+      starry.position.x + Math.sin(t * 0.5) * camDist,
+      starry.position.y + camH,
+      starry.position.z + Math.cos(t * 0.5) * camDist
+    ), 0.05);
+    camera.lookAt(starry.position.x, starry.position.y + 1, starry.position.z);
+
+    // Portal pulses bigger
+    const ps = 1 + Math.sin(t * 4) * 0.15;
+    portal.scale.set(ps, ps, ps);
+    portal.rotation.z += dt * 3;
+    crystalGroup.rotation.y += dt * 2;
+    portalInner.material.opacity = 0.4 + Math.sin(t * 5) * 0.2;
+
+    // Sparkle cleanup
+    for (let i = sparkles.length - 1; i >= 0; i--) {
+      const s = sparkles[i];
+      s.position.x += s.userData.vx * dt * 0.3;
+      s.position.y += dt * 2;
+      s.position.z += s.userData.vz * dt * 0.3;
+      s.userData.life -= dt;
+      if (s.userData.life <= 0) { scene.remove(s); sparkles.splice(i, 1); }
     }
+
+    // After 4 seconds, show win screen
+    if (t > 4) {
+      document.getElementById("final-score").textContent = gs.score;
+      document.getElementById("win-screen").style.display = "flex";
+    }
+
+    renderer.render(scene, camera);
   }
 
   // GAME LOOP
@@ -542,10 +584,25 @@ function buildGame(THREE) {
     gs.gameTime += dt;
 
     if (gs.won) {
-      portal.rotation.z += dt * 2;
-      crystalGroup.rotation.y += dt;
-      renderer.render(scene, camera);
+      runEndScene(dt);
       return;
+    }
+
+    // Check crystal proximity every frame (not just on collection)
+    if (gs.crystalFound && !gs.portalOpen) {
+      const cdx = gs.px - crystalGroup.position.x, cdz = gs.pz - crystalGroup.position.z;
+      if (cdx * cdx + cdz * cdz < 10) {
+        gs.portalOpen = true; portal.visible = true; gs.score += 200;
+        notify("🔮 The Astral Crystal opens a portal! Walk into the light! 🌟", 5);
+      }
+    }
+    if (gs.portalOpen && !gs.won) {
+      const pdx = gs.px - portal.position.x, pdz = gs.pz - portal.position.z;
+      const pdy = gs.py - portal.position.y;
+      if (pdx * pdx + pdz * pdz + pdy * pdy < 20) {
+        gs.won = true; gs.score += 500;
+        notify("🎉 Starry found her way home! 🎉", 10);
+      }
     }
 
     // Movement (keyboard + touch)
@@ -567,8 +624,18 @@ function buildGame(THREE) {
       starry.rotation.y = Math.atan2(wmx, wmz);
     }
 
-    // Jump
-    if ((gs.keys[" "] || gs.touchJump) && gs.onGround) { gs.vy = 8; gs.onGround = false; }
+    // Jump & Fly (fly unlocked after 2 potions!)
+    const wantJump = gs.keys[" "] || gs.touchJump;
+    if (gs.canFly) {
+      // Flying mode: hold space to go up, release to glide down slowly
+      if (wantJump) {
+        gs.vy = 6; gs.onGround = false;
+      } else if (!gs.onGround) {
+        gs.vy -= 6 * dt; // gentle gravity when flying
+      }
+    } else {
+      if (wantJump && gs.onGround) { gs.vy = 8; gs.onGround = false; }
+    }
 
     // Attack
     if ((gs.keys["e"] || gs.keys["f"] || gs.touchAttack) && gs.attackCooldown <= 0) {
@@ -585,10 +652,13 @@ function buildGame(THREE) {
     if (gs.keys["l"]) { playerLight.intensity = 3; playerLight.distance = 18; }
     else { playerLight.intensity = 1.2; playerLight.distance = 8; }
 
-    // Gravity
-    gs.vy -= 22 * dt; gs.py += gs.vy * dt;
+    // Gravity (reduced when flying)
+    if (!gs.canFly) { gs.vy -= 22 * dt; }
+    else if (!wantJump) { gs.vy -= 6 * dt; }
+    gs.py += gs.vy * dt;
     const groundY = terrainY(gs.px, gs.pz) + 0.18;
     if (gs.py <= groundY) { gs.py = groundY; gs.vy = 0; gs.onGround = true; }
+    if (gs.py > 30) { gs.py = 30; gs.vy = 0; } // sky ceiling
 
     // Boundary
     gs.px = Math.max(-HALF + 1, Math.min(HALF - 1, gs.px));
@@ -619,7 +689,15 @@ function buildGame(THREE) {
       if (dx * dx + dz * dz < 3) {
         c.userData.collected = true; c.visible = false;
         gs.score += 20;
-        if (c.userData.type === "potion") { gs.potions++; gs.hp = Math.min(gs.maxHp, gs.hp + 1); notify("Health potion! 💚 HP restored! (" + gs.potions + "/5)"); }
+        if (c.userData.type === "potion") {
+          gs.potions++; gs.hp = Math.min(gs.maxHp, gs.hp + 1);
+          if (gs.potions === 2 && !gs.canFly) {
+            gs.canFly = true;
+            notify("✨ 2 potions collected! Starry can FLY! Hold Space to soar! 🦋", 5);
+          } else {
+            notify("Health potion! 💚 HP restored! (" + gs.potions + "/5)");
+          }
+        }
         else { gs.chests++; gs.score += 30; notify("Treasure chest! 💰 +50 points! (" + gs.chests + "/3)"); }
         checkWin();
       }
