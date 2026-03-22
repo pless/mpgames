@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Starry's Astral Quest</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #0a0a2e 0%, #1a0a3a 40%, #2a1050 100%);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    overflow-x: hidden;
+  }
+  #story-screen {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center; width: 100%;
+  }
+  .story-card {
+    max-width: 420px; width: 90%; text-align: center; padding: 32px;
+    background: rgba(20,10,40,0.85); border-radius: 24px;
+    border: 2px solid rgba(160,100,255,0.3);
+    box-shadow: 0 0 60px rgba(100,50,200,0.3);
+  }
+  .story-emoji { font-size: 56px; margin-bottom: 12px; }
+  .story-title { color: #e8c0ff; font-size: 26px; margin: 8px 0; font-weight: 700; }
+  .story-text { color: #c8a8e8; font-size: 16px; line-height: 1.6; margin: 16px 0 24px; }
+  .dots { display: flex; justify-content: center; gap: 8px; margin-bottom: 20px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.2); }
+  .dot.active { background: #ffcc00; }
+  .story-btn {
+    background: linear-gradient(135deg, #8844dd, #cc44aa);
+    color: #fff; border: none; border-radius: 16px;
+    padding: 14px 36px; font-size: 18px; font-weight: 700;
+    cursor: pointer; box-shadow: 0 4px 20px rgba(136,68,221,0.4);
+    transition: transform 0.15s;
+  }
+  .story-btn:hover { transform: scale(1.05); }
+
+  #game-screen { display: none; width: 100%; flex-direction: column; align-items: center; padding: 10px 0; }
+  .game-title {
+    color: #ffcc44; font-size: 22px; margin: 4px 0 8px;
+    text-shadow: 0 0 20px rgba(255,200,50,0.5);
+  }
+  .hud {
+    display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 6px;
+  }
+  .hud-pill {
+    padding: 4px 12px; border-radius: 12px; color: #ddd;
+    font-size: 13px; border: 1px solid rgba(255,255,255,0.1);
+  }
+  #canvas-wrap {
+    width: 520px; max-width: 95vw; aspect-ratio: 4/3;
+    border-radius: 12px; overflow: hidden;
+    border: 2px solid rgba(160,100,255,0.3);
+    box-shadow: 0 0 40px rgba(100,50,200,0.3);
+  }
+  #canvas-wrap canvas { width: 100%; height: 100%; display: block; }
+  .controls-help {
+    color: #9988bb; font-size: 12px; margin-top: 8px; text-align: center; line-height: 1.6;
+  }
+  .controls-help b { color: #ccaaee; }
+  #notification {
+    display: none; position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    background: rgba(20,10,50,0.95); color: #e8d0ff; padding: 12px 24px;
+    border-radius: 16px; font-size: 15px; max-width: 90vw; text-align: center;
+    border: 1px solid rgba(160,100,255,0.4);
+    box-shadow: 0 4px 30px rgba(100,50,200,0.5);
+    z-index: 50; animation: fadeIn 0.3s ease;
+  }
+  #win-screen {
+    display: none; position: fixed; inset: 0;
+    align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.7); z-index: 100;
+  }
+  .win-card {
+    background: linear-gradient(135deg, #1a0a3a, #2a1060);
+    padding: 40px; border-radius: 24px; text-align: center; max-width: 400px;
+    border: 2px solid rgba(255,200,50,0.4);
+    box-shadow: 0 0 80px rgba(255,200,50,0.3);
+  }
+  .win-emoji { font-size: 64px; }
+  .win-title { color: #ffcc44; font-size: 28px; margin: 12px 0; }
+  .win-score { color: #d0b0ee; font-size: 18px; }
+  .win-score b { color: #ffcc44; }
+  .win-flavor { color: #b090cc; font-size: 14px; margin-top: 8px; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+  /* Touch controls */
+  #touch-controls { display: none; }
+  @media (hover: none) and (pointer: coarse) {
+    #touch-controls { display: block; }
+  }
+  #joystick-zone {
+    position: fixed; bottom: 20px; left: 20px;
+    width: 130px; height: 130px; border-radius: 50%;
+    background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.15);
+    touch-action: none; z-index: 60;
+  }
+  #joystick-knob {
+    position: absolute; top: 50%; left: 50%;
+    width: 50px; height: 50px; border-radius: 50%;
+    background: rgba(200,160,255,0.35); border: 2px solid rgba(200,160,255,0.5);
+    transform: translate(-50%, -50%); pointer-events: none;
+  }
+  .touch-btn {
+    position: fixed; bottom: 20px; width: 70px; height: 70px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.2); font-size: 28px;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none; z-index: 60; cursor: pointer; user-select: none;
+  }
+  #btn-jump { right: 20px; background: rgba(100,200,255,0.15); }
+  #btn-attack { right: 100px; background: rgba(255,100,200,0.15); }
+</style>
+</head>
+<body>
+
+<!-- STORY SCREEN -->
+<div id="story-screen">
+  <div class="story-card">
+    <div class="story-emoji" id="s-emoji">⭐🌸</div>
+    <h2 class="story-title" id="s-title">Starry</h2>
+    <p class="story-text" id="s-text">Starry is a magical girl from the Astral Store. She carries a powerful wand that shoots sparkles, lights up darkness, and makes flowers grow!</p>
+    <div class="dots" id="s-dots"></div>
+    <button class="story-btn" id="s-btn" onclick="nextSlide()">Next ➡️</button>
+  </div>
+</div>
+
+<!-- GAME SCREEN -->
+<div id="game-screen">
+  <h1 class="game-title">⭐ Starry's Astral Quest ⭐</h1>
+  <div class="hud" id="hud"></div>
+  <div id="canvas-wrap"></div>
+  <div class="controls-help">
+    <b>WASD</b> move · <b>Space</b> jump · <b>E</b> shoot sparkles · <b>L</b> hold to light up · Drag to look around
+  </div>
+</div>
+
+<!-- TOUCH CONTROLS -->
+<div id="touch-controls">
+  <div id="joystick-zone"><div id="joystick-knob"></div></div>
+  <div class="touch-btn" id="btn-jump">🦘</div>
+  <div class="touch-btn" id="btn-attack">✨</div>
+</div>
+
+<!-- NOTIFICATION -->
+<div id="notification"></div>
+
+<!-- WIN SCREEN -->
+<div id="win-screen">
+  <div class="win-card">
+    <div class="win-emoji">🎉⭐🎉</div>
+    <h2 class="win-title">Starry Found Her Way Home!</h2>
+    <p class="win-score">Final Score: <b id="final-score">0</b></p>
+    <p class="win-flavor">The Astral Crystal opened a portal and Starry stepped through, her bunny and cupcake friends by her side. The forest is safe again!</p>
+    <button class="story-btn" style="margin-top:20px" onclick="location.reload()">Play Again ⭐</button>
+  </div>
+</div>
+
+<script>
+// ─── STORY ───
+const STORY = [
+  { emoji:"⭐🌸", title:"Starry", text:"Starry is a magical girl from the Astral Store. She carries a powerful wand that shoots sparkles, lights up darkness, and makes flowers grow!" },
+  { emoji:"🌲🌑", title:"Lost in the Forest!", text:"One day Starry wandered too deep into the Enchanted Forest and got lost! Strange shadow creatures lurk between the trees..." },
+  { emoji:"🐰🧁", title:"Friendly Faces", text:"A magical bunny and a cupcake creature offer to help! They give hints, trade treasures, and can unlock secret paths." },
+  { emoji:"✨🔮", title:"The Astral Crystal!", text:"Somewhere in the forest lies the Astral Crystal — a giant star gem that opens a portal home. Find health potions, treasure chests, and defeat the shadows!" },
+];
+let slide = 0;
+function renderSlide() {
+  const s = STORY[slide];
+  document.getElementById("s-emoji").textContent = s.emoji;
+  document.getElementById("s-title").textContent = s.title;
+  document.getElementById("s-text").textContent = s.text;
+  const dots = document.getElementById("s-dots");
+  dots.innerHTML = "";
+  for (let i = 0; i < STORY.length; i++) {
+    const d = document.createElement("div");
+    d.className = "dot" + (i === slide ? " active" : "");
+    dots.appendChild(d);
+  }
+  document.getElementById("s-btn").textContent = slide < STORY.length - 1 ? "Next ➡️" : "Play! ⭐";
+}
+renderSlide();
+function nextSlide() {
+  if (slide < STORY.length - 1) { slide++; renderSlide(); }
+  else startGame();
+}
+
+// ─── START GAME ───
+function startGame() {
+  document.getElementById("story-screen").style.display = "none";
+  const gs = document.getElementById("game-screen");
+  gs.style.display = "flex";
+  loadThreeAndBuild();
+}
+
+function loadThreeAndBuild() {
+  if (window.THREE) { buildGame(window.THREE); return; }
+  const s = document.createElement("script");
+  s.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
+  s.onload = () => buildGame(window.THREE);
+  document.head.appendChild(s);
+}
+
+// ─── GAME ENGINE ───
+function buildGame(THREE) {
+  const container = document.getElementById("canvas-wrap");
+  const rect = container.getBoundingClientRect();
+  const W = Math.min(520, rect.width), H = W * 0.75;
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  container.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color("#0a1628");
+  scene.fog = new THREE.FogExp2("#0a1628", 0.018);
+
+  const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 200);
+  camera.position.set(0, 8, 12);
+
+  // Lighting
+  scene.add(new THREE.AmbientLight("#2a1a4a", 2.5));
+  const dirLight = new THREE.DirectionalLight("#8866cc", 2.0);
+  dirLight.position.set(10, 20, 5);
+  scene.add(dirLight);
+  const moonLight = new THREE.PointLight("#6644aa", 1.5, 60);
+  moonLight.position.set(-15, 25, -15);
+  scene.add(moonLight);
+
+  const HALF = 32;
+
+  // Terrain
+  function terrainY(x, z) {
+    return Math.sin(x * 0.15) * 1.2 + Math.cos(z * 0.12) * 1.0 + Math.sin((x + z) * 0.08) * 0.8;
+  }
+
+  const terrainGeo = new THREE.PlaneGeometry(HALF * 2, HALF * 2, 80, 80);
+  terrainGeo.rotateX(-Math.PI / 2);
+  const tPos = terrainGeo.attributes.position;
+  const tColors = [];
+  for (let i = 0; i < tPos.count; i++) {
+    const x = tPos.getX(i), z = tPos.getZ(i);
+    tPos.setY(i, terrainY(x, z));
+    tColors.push(0.05 + Math.random() * 0.03, 0.12 + Math.random() * 0.08, 0.06 + Math.random() * 0.04);
+  }
+  terrainGeo.setAttribute("color", new THREE.Float32BufferAttribute(tColors, 3));
+  terrainGeo.computeVertexNormals();
+  scene.add(new THREE.Mesh(terrainGeo, new THREE.MeshLambertMaterial({ vertexColors: true })));
+
+  // Stars
+  const starGeo = new THREE.BufferGeometry();
+  const sv = [];
+  for (let i = 0; i < 500; i++) {
+    const t = Math.random() * Math.PI * 2, p = Math.acos(2 * Math.random() - 1), r = 60 + Math.random() * 20;
+    sv.push(r * Math.sin(p) * Math.cos(t), r * Math.cos(p) + 10, r * Math.sin(p) * Math.sin(t));
+  }
+  starGeo.setAttribute("position", new THREE.Float32BufferAttribute(sv, 3));
+  scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: "#fff", size: 0.4 })));
+
+  // Trees
+  for (let i = 0; i < 40; i++) {
+    const tx = (Math.random() - 0.5) * HALF * 1.8, tz = (Math.random() - 0.5) * HALF * 1.8;
+    if (Math.abs(tx) < 4 && Math.abs(tz) < 4) continue;
+    const g = new THREE.Group();
+    const th = 2.5 + Math.random() * 2;
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, th, 6), new THREE.MeshLambertMaterial({ color: "#5c3a1e" }));
+    trunk.position.y = th / 2;
+    g.add(trunk);
+    const fs = 1.5 + Math.random() * 1.2;
+    const fol = new THREE.Mesh(new THREE.SphereGeometry(fs, 8, 6), new THREE.MeshLambertMaterial({ color: new THREE.Color().setHSL(0.3 + Math.random() * 0.1, 0.6, 0.25 + Math.random() * 0.1) }));
+    fol.position.y = th + fs * 0.6;
+    g.add(fol);
+    g.position.set(tx, terrainY(tx, tz), tz);
+    scene.add(g);
+  }
+
+  // Cave hill
+  const caveHill = new THREE.Mesh(new THREE.SphereGeometry(5, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: "#3a2a1a" }));
+  caveHill.position.set(0, terrainY(0, -18), -18);
+  scene.add(caveHill);
+  const caveEnt = new THREE.Mesh(new THREE.CircleGeometry(1.8, 16), new THREE.MeshBasicMaterial({ color: "#050510" }));
+  caveEnt.position.set(0, terrainY(0, -18) + 1.5, -13.1);
+  scene.add(caveEnt);
+  const caveL = new THREE.PointLight("#4400aa", 1.5, 8);
+  caveL.position.set(0, terrainY(0, -18) + 2, -14);
+  scene.add(caveL);
+
+  // Astral Crystal
+  const crystalGroup = new THREE.Group();
+  const crystMat = new THREE.MeshStandardMaterial({ color: "#ffdd00", emissive: "#ffaa00", emissiveIntensity: 0.8 });
+  const s1 = new THREE.Mesh(new THREE.ConeGeometry(1.8, 3.5, 4), crystMat);
+  crystalGroup.add(s1);
+  const s2 = new THREE.Mesh(new THREE.ConeGeometry(1.8, 3.5, 4), crystMat);
+  s2.rotation.z = Math.PI;
+  crystalGroup.add(s2);
+  for (let i = 0; i < 4; i++) {
+    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.5), new THREE.MeshStandardMaterial({ color: "#4488ff", emissive: "#2244cc", emissiveIntensity: 0.6 }));
+    const a = (i / 4) * Math.PI * 2;
+    gem.position.set(Math.cos(a) * 2.5, Math.sin(a) * 2.5, 0);
+    crystalGroup.add(gem);
+  }
+  crystalGroup.add(new THREE.PointLight("#ffdd00", 2, 12));
+  crystalGroup.position.set(0, terrainY(0, -18) + 3.5, -18);
+  crystalGroup.visible = false;
+  scene.add(crystalGroup);
+
+  // Portal
+  const portal = new THREE.Group();
+  portal.add(new THREE.Mesh(new THREE.TorusGeometry(2.5, 0.3, 16, 32), new THREE.MeshStandardMaterial({ color: "#aa44ff", emissive: "#8822dd", emissiveIntensity: 1.0 })));
+  const portalInner = new THREE.Mesh(new THREE.CircleGeometry(2.2, 32), new THREE.MeshBasicMaterial({ color: "#ddaaff", transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
+  portal.add(portalInner);
+  portal.add(new THREE.PointLight("#bb66ff", 3, 15));
+  portal.position.set(0, terrainY(0, -18) + 3.5, -22);
+  portal.visible = false;
+  scene.add(portal);
+
+  // STARRY
+  const starry = new THREE.Group();
+  const bodyM = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.45, 1.0, 8), new THREE.MeshLambertMaterial({ color: "#ee5577" }));
+  bodyM.position.y = 0.7; starry.add(bodyM);
+  const headM = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), new THREE.MeshLambertMaterial({ color: "#ffccaa" }));
+  headM.position.y = 1.5; starry.add(headM);
+  const h1 = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.05, 0.9, 6), new THREE.MeshLambertMaterial({ color: "#ff6644" }));
+  h1.position.set(0, 1.2, -0.15); starry.add(h1);
+  const h2 = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.04, 0.7, 6), new THREE.MeshLambertMaterial({ color: "#aa44ff" }));
+  h2.position.set(0.15, 1.3, -0.1); starry.add(h2);
+  const eL = new THREE.Mesh(new THREE.SphereGeometry(0.06), new THREE.MeshBasicMaterial({ color: "#2244aa" }));
+  eL.position.set(-0.12, 1.55, 0.28); starry.add(eL);
+  const eR = new THREE.Mesh(new THREE.SphereGeometry(0.06), new THREE.MeshBasicMaterial({ color: "#2244aa" }));
+  eR.position.set(0.12, 1.55, 0.28); starry.add(eR);
+  const wandM = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 6), new THREE.MeshLambertMaterial({ color: "#ddaa44" }));
+  wandM.position.set(0.45, 1.1, 0.1); wandM.rotation.z = -0.3; starry.add(wandM);
+  const wandStar = new THREE.Mesh(new THREE.OctahedronGeometry(0.12), new THREE.MeshStandardMaterial({ color: "#ffff00", emissive: "#ffcc00", emissiveIntensity: 1.0 }));
+  wandStar.position.set(0.55, 1.5, 0.1); starry.add(wandStar);
+  const lL = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.5, 6), new THREE.MeshLambertMaterial({ color: "#ffaa88" }));
+  lL.position.set(-0.15, 0.15, 0); starry.add(lL);
+  const lR = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.5, 6), new THREE.MeshLambertMaterial({ color: "#ffaa88" }));
+  lR.position.set(0.15, 0.15, 0); starry.add(lR);
+  const playerLight = new THREE.PointLight("#ffcc44", 1.2, 8);
+  playerLight.position.y = 2; starry.add(playerLight);
+  starry.position.set(0, terrainY(0, 0) + 0.18, 0);
+  scene.add(starry);
+
+  // Billboard helper
+  function makeBillboard(emoji, sz) {
+    const c = document.createElement("canvas"); c.width = 128; c.height = 128;
+    const ctx = c.getContext("2d");
+    ctx.font = Math.floor(sz) + "px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(emoji, 64, 64);
+    return new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c) }));
+  }
+
+  // NPCs
+  const bunnyPos = { x: 8, z: 5 };
+  const bunny = makeBillboard("🐰", 90);
+  bunny.scale.set(2, 2, 1);
+  bunny.position.set(bunnyPos.x, terrainY(bunnyPos.x, bunnyPos.z) + 1.8, bunnyPos.z);
+  scene.add(bunny);
+
+  const cupcakePos = { x: -10, z: -8 };
+  const cupcake = makeBillboard("🧁", 90);
+  cupcake.scale.set(2, 2, 1);
+  cupcake.position.set(cupcakePos.x, terrainY(cupcakePos.x, cupcakePos.z) + 1.8, cupcakePos.z);
+  scene.add(cupcake);
+
+  // Collectibles
+  const collectibles = [];
+  [{ x:-12, z:10 },{ x:15, z:-8 },{ x:-5, z:-20 },{ x:20, z:15 },{ x:-18, z:-5 }].forEach(p => {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 6), new THREE.MeshStandardMaterial({ color:"#33cc33", emissive:"#22aa22", emissiveIntensity:0.5, transparent:true, opacity:0.8 })));
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 0.3, 6), new THREE.MeshStandardMaterial({ color:"#33cc33", emissive:"#22aa22", emissiveIntensity:0.3 }));
+    neck.position.y = 0.45; g.add(neck);
+    const cork = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.15, 6), new THREE.MeshLambertMaterial({ color:"#664422" }));
+    cork.position.y = 0.6; g.add(cork);
+    g.add(new THREE.PointLight("#33ff33", 0.8, 5));
+    g.position.set(p.x, terrainY(p.x, p.z) + 1.2, p.z);
+    g.userData = { type:"potion", collected:false };
+    scene.add(g); collectibles.push(g);
+  });
+  [{ x:10, z:18 },{ x:-20, z:12 },{ x:8, z:-22 }].forEach(p => {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.45, 0.5), new THREE.MeshLambertMaterial({ color:"#774422" })));
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.15, 0.55), new THREE.MeshLambertMaterial({ color:"#553311" }));
+    lid.position.y = 0.3; g.add(lid);
+    const clasp = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.1), new THREE.MeshLambertMaterial({ color:"#ddaa22" }));
+    clasp.position.set(0, 0.15, 0.28); g.add(clasp);
+    g.add(new THREE.PointLight("#ffaa00", 0.6, 4));
+    g.position.set(p.x, terrainY(p.x, p.z) + 1.0, p.z);
+    g.userData = { type:"chest", collected:false };
+    scene.add(g); collectibles.push(g);
+  });
+
+  // Shadow enemies
+  const shadows = [];
+  [{ x:-8,z:-15 },{ x:15,z:10 },{ x:-15,z:5 },{ x:5,z:-12 },{ x:20,z:-18 },{ x:-22,z:-15 }].forEach(p => {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 6), new THREE.MeshStandardMaterial({ color:"#110022", emissive:"#220044", emissiveIntensity:0.3, transparent:true, opacity:0.85 })));
+    const el = new THREE.Mesh(new THREE.SphereGeometry(0.1), new THREE.MeshBasicMaterial({ color:"#ff0000" }));
+    el.position.set(-0.25, 0.15, 0.65); g.add(el);
+    const er = new THREE.Mesh(new THREE.SphereGeometry(0.1), new THREE.MeshBasicMaterial({ color:"#ff0000" }));
+    er.position.set(0.25, 0.15, 0.65); g.add(er);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.08, 6, 16), new THREE.MeshBasicMaterial({ color:"#330066" }));
+    ring.rotation.x = Math.PI / 2; g.add(ring);
+    g.position.set(p.x, terrainY(p.x, p.z) + 1.2, p.z);
+    g.userData = { alive:true, hp:2, ox:p.x, oz:p.z, angle:Math.random() * Math.PI * 2 };
+    scene.add(g); shadows.push(g);
+  });
+
+  // Sparkles & flowers
+  const sparkles = [];
+  function shootSparkle(fx, fy, fz, dx, dz) {
+    const sp = new THREE.Mesh(new THREE.SphereGeometry(0.1, 4, 4), new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL(Math.random(), 1, 0.7) }));
+    sp.position.set(fx, fy, fz);
+    const l = Math.sqrt(dx * dx + dz * dz) || 1;
+    sp.userData = { vx: (dx / l) * 18, vz: (dz / l) * 18, life: 0.6 };
+    scene.add(sp); sparkles.push(sp);
+  }
+  const flowers = [];
+  function growFlower(x, z) {
+    const f = new THREE.Group();
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.4, 4), new THREE.MeshLambertMaterial({ color:"#22aa22" }));
+    stem.position.y = 0.2; f.add(stem);
+    const pet = new THREE.Mesh(new THREE.SphereGeometry(0.18, 6, 4), new THREE.MeshLambertMaterial({ color: new THREE.Color().setHSL(Math.random(), 0.8, 0.6) }));
+    pet.position.y = 0.45; f.add(pet);
+    f.position.set(x, terrainY(x, z), z);
+    scene.add(f); flowers.push(f);
+  }
+
+  // GAME STATE
+  const gs = {
+    px:0, py:terrainY(0,0)+0.18, pz:0, vy:0, onGround:true,
+    camAngle:0, camDragX:0, dragging:false,
+    keys:{}, score:0, hp:5, maxHp:5,
+    potions:0, chests:0, shadowsDefeated:0,
+    crystalFound:false, portalOpen:false,
+    attacking:false, attackCooldown:0,
+    wandLit:false, notification:"", notifTimer:0,
+    bunnyTalked:false, cupcakeTalked:false,
+    followBunny:false, followCupcake:false,
+    gameTime:0, facing:{ x:0, z:-1 }, won:false,
+    joyX:0, joyZ:0, touchJump:false, touchAttack:false
+  };
+
+  function notify(msg, dur) {
+    dur = dur || 3.5;
+    gs.notification = msg; gs.notifTimer = dur;
+    const el = document.getElementById("notification");
+    el.textContent = msg; el.style.display = "block";
+  }
+  notify("Welcome to the Enchanted Forest! Find the Astral Crystal! ⭐");
+
+  // Input
+  window.addEventListener("keydown", e => { gs.keys[e.key.toLowerCase()] = true; if(e.key === " ") e.preventDefault(); });
+  window.addEventListener("keyup", e => { gs.keys[e.key.toLowerCase()] = false; });
+
+  // Camera drag
+  const cvs = renderer.domElement;
+  cvs.addEventListener("pointerdown", e => {
+    const r = cvs.getBoundingClientRect();
+    if (e.clientX > r.left + r.width * 0.2 && e.clientX < r.left + r.width * 0.8) {
+      gs.dragging = true; gs.camDragX = e.clientX;
+    }
+  });
+  cvs.addEventListener("pointermove", e => {
+    if (gs.dragging) { gs.camAngle -= (e.clientX - gs.camDragX) * 0.008; gs.camDragX = e.clientX; }
+  });
+  cvs.addEventListener("pointerup", () => { gs.dragging = false; });
+
+  // Touch joystick
+  const joyZone = document.getElementById("joystick-zone");
+  const joyKnob = document.getElementById("joystick-knob");
+  let joyTouchId = null;
+  joyZone.addEventListener("pointerdown", e => {
+    joyTouchId = e.pointerId; joyZone.setPointerCapture(e.pointerId);
+    updateJoy(e);
+  });
+  joyZone.addEventListener("pointermove", e => { if (e.pointerId === joyTouchId) updateJoy(e); });
+  joyZone.addEventListener("pointerup", e => { joyTouchId = null; gs.joyX = 0; gs.joyZ = 0; joyKnob.style.transform = "translate(-50%,-50%)"; });
+  function updateJoy(e) {
+    const r = joyZone.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    let dx = e.clientX - cx, dy = e.clientY - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const maxR = 52;
+    if (dist > maxR) { dx = dx / dist * maxR; dy = dy / dist * maxR; }
+    joyKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    gs.joyX = dx / maxR; gs.joyZ = dy / maxR;
+  }
+  document.getElementById("btn-jump").addEventListener("pointerdown", () => { gs.touchJump = true; });
+  document.getElementById("btn-jump").addEventListener("pointerup", () => { gs.touchJump = false; });
+  document.getElementById("btn-attack").addEventListener("pointerdown", () => { gs.touchAttack = true; });
+  document.getElementById("btn-attack").addEventListener("pointerup", () => { gs.touchAttack = false; });
+
+  // HUD
+  function updateHUD() {
+    const hud = document.getElementById("hud");
+    const items = [
+      { l:"💚 HP", v:gs.hp+"/"+gs.maxHp, bg:"#1a3a1a" },
+      { l:"⭐ Score", v:gs.score, bg:"#3a2a0a" },
+      { l:"💚 Potions", v:gs.potions+"/5", bg:"#0a2a1a" },
+      { l:"💰 Chests", v:gs.chests+"/3", bg:"#2a1a0a" },
+      { l:"⚔️ Shadows", v:gs.shadowsDefeated+"/6", bg:"#2a0a2a" },
+    ];
+    hud.innerHTML = items.map(h => `<div class="hud-pill" style="background:${h.bg}">${h.l}: ${h.v}</div>`).join("");
+  }
+
+  function checkWin() {
+    const allC = collectibles.every(c => c.userData.collected);
+    const allS = shadows.every(s => !s.userData.alive);
+    if (allC && allS && !gs.crystalFound) {
+      gs.crystalFound = true; crystalGroup.visible = true;
+      notify("✨ The Astral Crystal has appeared in the cave! Go find it! ✨");
+    }
+    if (gs.crystalFound && !gs.portalOpen) {
+      const dx = gs.px - crystalGroup.position.x, dz = gs.pz - crystalGroup.position.z;
+      if (dx * dx + dz * dz < 12) {
+        gs.portalOpen = true; portal.visible = true; gs.score += 200;
+        notify("🔮 The Astral Crystal opens a portal! Step through to go home! 🌟");
+      }
+    }
+    if (gs.portalOpen) {
+      const dx = gs.px - portal.position.x, dz = gs.pz - portal.position.z;
+      if (dx * dx + dz * dz < 8) {
+        gs.won = true; gs.score += 500;
+        notify("🎉 Starry found her way home! YOU WIN! 🎉");
+        document.getElementById("final-score").textContent = gs.score;
+        document.getElementById("win-screen").style.display = "flex";
+      }
+    }
+  }
+
+  // GAME LOOP
+  let lastTime = performance.now();
+  function loop() {
+    requestAnimationFrame(loop);
+    const now = performance.now();
+    let dt = (now - lastTime) / 1000;
+    if (dt > 0.05) dt = 0.05;
+    lastTime = now;
+    gs.gameTime += dt;
+
+    if (gs.won) {
+      portal.rotation.z += dt * 2;
+      crystalGroup.rotation.y += dt;
+      renderer.render(scene, camera);
+      return;
+    }
+
+    // Movement (keyboard + touch)
+    const speed = 5;
+    let mx = gs.joyX, mz = gs.joyZ;
+    if (gs.keys["w"] || gs.keys["arrowup"]) mz -= 1;
+    if (gs.keys["s"] || gs.keys["arrowdown"]) mz += 1;
+    if (gs.keys["a"] || gs.keys["arrowleft"]) mx -= 1;
+    if (gs.keys["d"] || gs.keys["arrowright"]) mx += 1;
+
+    const sinA = Math.sin(gs.camAngle), cosA = Math.cos(gs.camAngle);
+    const wmx = mx * cosA - mz * sinA, wmz = mx * sinA + mz * cosA;
+    const len = Math.sqrt(wmx * wmx + wmz * wmz) || 1;
+
+    if (Math.abs(mx) > 0.05 || Math.abs(mz) > 0.05) {
+      gs.px += (wmx / len) * speed * dt;
+      gs.pz += (wmz / len) * speed * dt;
+      gs.facing.x = wmx / len; gs.facing.z = wmz / len;
+      starry.rotation.y = Math.atan2(wmx, wmz);
+    }
+
+    // Jump
+    if ((gs.keys[" "] || gs.touchJump) && gs.onGround) { gs.vy = 8; gs.onGround = false; }
+
+    // Attack
+    if ((gs.keys["e"] || gs.keys["f"] || gs.touchAttack) && gs.attackCooldown <= 0) {
+      gs.attackCooldown = 0.4;
+      for (let i = 0; i < 5; i++) {
+        const spr = (Math.random() - 0.5) * 0.6;
+        shootSparkle(gs.px + gs.facing.x * 0.8, gs.py + 1.3, gs.pz + gs.facing.z * 0.8, gs.facing.x + spr, gs.facing.z + spr);
+      }
+      if (Math.random() < 0.3) growFlower(gs.px + (Math.random() - 0.5) * 2, gs.pz + (Math.random() - 0.5) * 2);
+    }
+    gs.attackCooldown -= dt;
+
+    // Light
+    if (gs.keys["l"]) { playerLight.intensity = 3; playerLight.distance = 18; }
+    else { playerLight.intensity = 1.2; playerLight.distance = 8; }
+
+    // Gravity
+    gs.vy -= 22 * dt; gs.py += gs.vy * dt;
+    const groundY = terrainY(gs.px, gs.pz) + 0.18;
+    if (gs.py <= groundY) { gs.py = groundY; gs.vy = 0; gs.onGround = true; }
+
+    // Boundary
+    gs.px = Math.max(-HALF + 1, Math.min(HALF - 1, gs.px));
+    gs.pz = Math.max(-HALF + 1, Math.min(HALF - 1, gs.pz));
+
+    starry.position.set(gs.px, gs.py + (gs.onGround && (Math.abs(mx) > 0.05 || Math.abs(mz) > 0.05) ? Math.sin(gs.gameTime * 10) * 0.06 : 0), gs.pz);
+
+    // Camera
+    const cx = gs.px + Math.sin(gs.camAngle) * 9;
+    const cz = gs.pz + Math.cos(gs.camAngle) * 9;
+    camera.position.lerp(new THREE.Vector3(cx, gs.py + (gs.onGround ? 6 : 4.5), cz), 0.08);
+    camera.lookAt(gs.px, gs.py + 1.2, gs.pz);
+
+    // Sparkles
+    for (let i = sparkles.length - 1; i >= 0; i--) {
+      const s = sparkles[i];
+      s.position.x += s.userData.vx * dt; s.position.z += s.userData.vz * dt;
+      s.userData.life -= dt;
+      if (s.userData.life <= 0) { scene.remove(s); sparkles.splice(i, 1); }
+    }
+
+    // Collectibles
+    collectibles.forEach(c => {
+      if (c.userData.collected) return;
+      c.rotation.y += dt * 1.5;
+      c.position.y += Math.sin(gs.gameTime * 2 + c.position.x) * 0.003;
+      const dx = gs.px - c.position.x, dz = gs.pz - c.position.z;
+      if (dx * dx + dz * dz < 3) {
+        c.userData.collected = true; c.visible = false;
+        gs.score += 20;
+        if (c.userData.type === "potion") { gs.potions++; gs.hp = Math.min(gs.maxHp, gs.hp + 1); notify("Health potion! 💚 HP restored! (" + gs.potions + "/5)"); }
+        else { gs.chests++; gs.score += 30; notify("Treasure chest! 💰 +50 points! (" + gs.chests + "/3)"); }
+        checkWin();
+      }
+    });
+
+    // Shadows
+    shadows.forEach(s => {
+      if (!s.userData.alive) return;
+      s.userData.angle += dt * 0.8;
+      s.position.x = s.userData.ox + Math.cos(s.userData.angle) * 3;
+      s.position.z = s.userData.oz + Math.sin(s.userData.angle) * 3;
+      s.position.y = terrainY(s.position.x, s.position.z) + 1.2 + Math.sin(gs.gameTime * 3) * 0.3;
+      const sc = 1 + Math.sin(gs.gameTime * 4) * 0.1;
+      s.scale.set(sc, sc, sc);
+
+      for (let i = sparkles.length - 1; i >= 0; i--) {
+        const sp = sparkles[i];
+        const dx = sp.position.x - s.position.x, dz = sp.position.z - s.position.z;
+        if (dx * dx + dz * dz < 2) {
+          s.userData.hp--; scene.remove(sp); sparkles.splice(i, 1);
+          if (s.userData.hp <= 0) {
+            s.userData.alive = false; s.visible = false; gs.shadowsDefeated++; gs.score += 50;
+            notify("Shadow defeated! ⚔️ (" + gs.shadowsDefeated + "/6)"); checkWin();
+          }
+        }
+      }
+
+      const px = gs.px - s.position.x, pz = gs.pz - s.position.z;
+      if (px * px + pz * pz < 1.5 && gs.attackCooldown < -0.5) {
+        gs.hp--; gs.attackCooldown = 0.5;
+        notify("Ouch! Shadow touched you! 💔 HP: " + gs.hp);
+        if (gs.hp <= 0) { gs.hp = gs.maxHp; gs.px = 0; gs.pz = 0; gs.py = terrainY(0, 0) + 0.18; notify("Starry recovers! Full HP restored! ⭐"); }
+      }
+    });
+
+    // NPCs
+    const bd = (gs.px - bunnyPos.x) ** 2 + (gs.pz - bunnyPos.z) ** 2;
+    if (bd < 5 && !gs.bunnyTalked) {
+      gs.bunnyTalked = true; gs.score += 10; gs.followBunny = true;
+      notify("🐰 Bunny: 'The Astral Crystal is hidden in the cave to the north! I'll come with you!'");
+      setTimeout(() => { gs.bunnyTalked = false; }, 8000);
+    }
+    const cd = (gs.px - cupcakePos.x) ** 2 + (gs.pz - cupcakePos.z) ** 2;
+    if (cd < 5 && !gs.cupcakeTalked) {
+      gs.cupcakeTalked = true; gs.score += 10; gs.followCupcake = true;
+      notify("🧁 Cupcake: 'Defeat the shadows and I'll unlock a secret path! Here, take this sparkle boost!'");
+      setTimeout(() => { gs.cupcakeTalked = false; }, 8000);
+    }
+
+    if (gs.followBunny) {
+      bunny.position.x += (gs.px - 1.5 - bunny.position.x) * 0.03;
+      bunny.position.z += (gs.pz + 1.5 - bunny.position.z) * 0.03;
+      bunny.position.y = terrainY(bunny.position.x, bunny.position.z) + 1.8;
+    }
+    if (gs.followCupcake) {
+      cupcake.position.x += (gs.px + 1.5 - cupcake.position.x) * 0.03;
+      cupcake.position.z += (gs.pz + 1.5 - cupcake.position.z) * 0.03;
+      cupcake.position.y = terrainY(cupcake.position.x, cupcake.position.z) + 1.8;
+    }
+
+    // Animate crystal & portal
+    crystalGroup.rotation.y += dt * 0.8;
+    portal.rotation.z += dt * 1.5;
+    portalInner.material.opacity = 0.3 + Math.sin(gs.gameTime * 3) * 0.15;
+    wandStar.material.emissiveIntensity = 0.6 + Math.sin(gs.gameTime * 8) * 0.4;
+
+    // Notification
+    if (gs.notifTimer > 0) {
+      gs.notifTimer -= dt;
+      if (gs.notifTimer <= 0) { gs.notification = ""; document.getElementById("notification").style.display = "none"; }
+    }
+
+    updateHUD();
+    renderer.render(scene, camera);
+  }
+  loop();
+}
+</script>
+</body>
+</html>
