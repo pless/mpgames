@@ -68,17 +68,38 @@
       <div style="min-width:140px">
         <label>Main Model</label>
         <select id="model">
-          <option>gpt-4o</option><option>gpt-4o-mini</option>
-          <option>gpt-4.1</option><option>gpt-4.1-mini</option><option>gpt-4.1-nano</option>
-          <option>o1-mini</option><option>o1</option><option>o3-mini</option>
+          <optgroup label="GPT-5.4 (Latest)">
+            <option>gpt-5.4</option><option>gpt-5.4-mini</option><option>gpt-5.4-nano</option>
+          </optgroup>
+          <optgroup label="GPT-5.x (Older)">
+            <option>gpt-5.2</option><option>gpt-5.1</option>
+            <option>gpt-5</option><option>gpt-5-mini</option><option>gpt-5-nano</option>
+          </optgroup>
+          <optgroup label="GPT-4.x">
+            <option>gpt-4o</option><option>gpt-4o-mini</option>
+            <option>gpt-4.1</option><option>gpt-4.1-mini</option><option>gpt-4.1-nano</option>
+          </optgroup>
+          <optgroup label="Reasoning (o-series)">
+            <option>o3-mini</option><option>o1</option><option>o1-mini</option>
+          </optgroup>
         </select>
       </div>
       <div style="min-width:140px">
         <label>Extraction Model</label>
         <select id="extractModel">
-          <option>gpt-4o-mini</option><option>gpt-4o</option>
-          <option>gpt-4.1-mini</option><option>gpt-4.1-nano</option><option>gpt-4.1</option>
-          <option>o1-mini</option><option>o1</option><option>o3-mini</option>
+          <optgroup label="GPT-5.4 (Latest)">
+            <option>gpt-5.4-mini</option><option>gpt-5.4-nano</option><option>gpt-5.4</option>
+          </optgroup>
+          <optgroup label="GPT-5.x (Older)">
+            <option>gpt-5-mini</option><option>gpt-5-nano</option><option>gpt-5.2</option>
+          </optgroup>
+          <optgroup label="GPT-4.x">
+            <option>gpt-4o-mini</option><option>gpt-4o</option>
+            <option>gpt-4.1-mini</option><option>gpt-4.1-nano</option><option>gpt-4.1</option>
+          </optgroup>
+          <optgroup label="Reasoning (o-series)">
+            <option>o3-mini</option><option>o1-mini</option><option>o1</option>
+          </optgroup>
         </select>
       </div>
       <div style="flex:1;min-width:180px">
@@ -119,7 +140,7 @@ CHW NOTE:
 
     <div style="margin-top:12px">
       <label>Test Extraction Prompt <span style="font-weight:400;text-transform:none">— <code style="color:var(--ac2)">{note}</code> + <code style="color:var(--ac2)">{feedback}</code></span></label>
-      <textarea id="extractPrompt" style="min-height:110px">Given this CHW consultation note and corresponding LLM clinical feedback, extract ALL medical/diagnostic tests mentioned.
+      <textarea id="extractPrompt" style="min-height:110px">Given this CHW consultation note and LLM clinical feedback, determine whether the LLM recommends adding or removing tests for malaria, anemia, and urinalysis.
 
 CHW NOTE:
 {note}
@@ -129,9 +150,12 @@ LLM FEEDBACK:
 
 Respond ONLY with a JSON object (no markdown, no backticks):
 {
-  "tests_recommended": ["test1", "test2"],
-  "tests_unnecessary": ["test3"],
-  "tests_missed": ["test4"]
+  "recommend_adding_malaria_test": 0 or 1,
+  "recommend_removing_malaria_test": 0 or 1,
+  "recommend_adding_anemia_test": 0 or 1,
+  "recommend_removing_anemia_test": 0 or 1,
+  "recommend_adding_urinalysis": 0 or 1,
+  "recommend_removing_urinalysis": 0 or 1
 }</textarea>
     </div>
   </div>
@@ -254,16 +278,21 @@ async function callLLM(prompt, modelOverride) {
   return d.choices?.[0]?.message?.content || '';
 }
 
+const TEST_FIELDS = [
+  'recommend_adding_malaria_test','recommend_removing_malaria_test',
+  'recommend_adding_anemia_test','recommend_removing_anemia_test',
+  'recommend_adding_urinalysis','recommend_removing_urinalysis',
+];
+const EMPTY_TESTS = Object.fromEntries(TEST_FIELDS.map(f=>[f,0]));
+
 function parseTests(text) {
   try {
     const c = text.replace(/```json\s*/g,'').replace(/```\s*/g,'').trim();
     const o = JSON.parse(c);
-    return {
-      rec: (o.tests_recommended||[]).map(s=>String(s).toLowerCase().trim()),
-      unn: (o.tests_unnecessary||[]).map(s=>String(s).toLowerCase().trim()),
-      miss: (o.tests_missed||[]).map(s=>String(s).toLowerCase().trim()),
-    };
-  } catch { return {rec:[],unn:[],miss:[]}; }
+    const out = {};
+    TEST_FIELDS.forEach(f => { out[f] = o[f] ? 1 : 0; });
+    return out;
+  } catch { return {...EMPTY_TESTS}; }
 }
 
 // ── Pipeline ──
@@ -275,7 +304,7 @@ async function runPipeline() {
   const debug = $('debugMode').checked;
   const rows = debug ? DATA.slice(0,10) : DATA;
 
-  RESULTS = rows.map(r => ({...r, llm_response:'', extract_raw:'', rec:[], unn:[], miss:[], error:''}));
+  RESULTS = rows.map(r => ({...r, llm_response:'', extract_raw:'', ...EMPTY_TESTS, error:''}));
   aborted = false;
   $('runBtn').disabled=true; $('stopBtn').style.display='inline-block';
   $('log').innerHTML=''; $('log').style.display='none'; $('resultsSection').style.display='none';
@@ -339,30 +368,30 @@ function finish(status) {
 function stopPipeline() { aborted=true; }
 
 // ── Render ──
+const FIELD_LABELS = {
+  recommend_adding_malaria_test: {label:'Add malaria', cls:'pill-r'},
+  recommend_removing_malaria_test: {label:'Remove malaria', cls:'pill-u'},
+  recommend_adding_anemia_test: {label:'Add anemia', cls:'pill-r'},
+  recommend_removing_anemia_test: {label:'Remove anemia', cls:'pill-u'},
+  recommend_adding_urinalysis: {label:'Add urinalysis', cls:'pill-r'},
+  recommend_removing_urinalysis: {label:'Remove urinalysis', cls:'pill-u'},
+};
+
 function renderResults() {
   $('resultsSection').style.display='block';
   const ok = RESULTS.filter(r=>!r.error).length;
   const errs = RESULTS.filter(r=>r.error).length;
 
-  // Summary
-  const counts = {};
-  RESULTS.forEach(r => {
-    r.rec.forEach(t=>{ if(!counts[t])counts[t]={r:0,u:0,m:0}; counts[t].r++; });
-    r.unn.forEach(t=>{ if(!counts[t])counts[t]={r:0,u:0,m:0}; counts[t].u++; });
-    r.miss.forEach(t=>{ if(!counts[t])counts[t]={r:0,u:0,m:0}; counts[t].m++; });
-  });
-  const sorted = Object.entries(counts).sort((a,b)=>(b[1].r+b[1].u+b[1].m)-(a[1].r+a[1].u+a[1].m));
-
-  let sh = '<div class="grid5">';
-  sh += '<div class="hdr">Test</div><div class="hdr">Count</div><div class="hdr" style="color:var(--gn)">Rec</div><div class="hdr" style="color:var(--rd)">Unn</div><div class="hdr" style="color:var(--or)">Miss</div>';
-  if(!sorted.length) sh += '<div class="cell" style="grid-column:1/-1;text-align:center;color:var(--tx2)">No tests extracted</div>';
-  sorted.forEach(([n,d])=>{
-    const tot=d.r+d.u+d.m;
-    sh += `<div class="cell">${n}</div>`;
-    sh += `<div class="cell" style="color:var(--ac2);font-weight:700">${tot} <span style="color:var(--tx2);font-weight:400;font-size:10px">(${Math.round(tot/ok*100)}%)</span></div>`;
-    sh += `<div class="cell" style="color:var(--gn)">${d.r||'–'}</div>`;
-    sh += `<div class="cell" style="color:var(--rd)">${d.u||'–'}</div>`;
-    sh += `<div class="cell" style="color:var(--or)">${d.m||'–'}</div>`;
+  // Summary: count how many notes got 1 for each field
+  let sh = '<div style="display:grid;grid-template-columns:1fr 80px 70px;font-size:12px;border:1px solid var(--bd);border-radius:6px;overflow:hidden">';
+  sh += '<div class="hdr">Recommendation</div><div class="hdr">Count</div><div class="hdr">% of Notes</div>';
+  TEST_FIELDS.forEach(f => {
+    const n = RESULTS.filter(r=>!r.error && r[f]===1).length;
+    const info = FIELD_LABELS[f];
+    const color = f.includes('adding') ? 'var(--gn)' : 'var(--rd)';
+    sh += `<div class="cell" style="color:${color}">${info.label}</div>`;
+    sh += `<div class="cell" style="font-weight:700">${n}/${ok}</div>`;
+    sh += `<div class="cell">${ok ? Math.round(n/ok*100) : 0}%</div>`;
   });
   sh += '</div>';
   $('summaryGrid').innerHTML = sh;
@@ -371,11 +400,10 @@ function renderResults() {
   // Per-note
   let nh = '';
   RESULTS.forEach((r,i) => {
-    const pills = [
-      ...r.rec.slice(0,3).map(t=>`<span class="pill pill-r">${t}</span>`),
-      ...r.unn.slice(0,2).map(t=>`<span class="pill pill-u">${t}</span>`),
-      ...r.miss.slice(0,2).map(t=>`<span class="pill pill-m">${t}</span>`),
-    ].join('');
+    const pills = TEST_FIELDS
+      .filter(f => r[f] === 1)
+      .map(f => `<span class="pill ${FIELD_LABELS[f].cls}">${FIELD_LABELS[f].label}</span>`)
+      .join('');
     nh += `<div class="card collapsible" style="border-left:3px solid var(--${r.error?'rd':'gn'})" onclick="this.querySelector('.detail').style.display=this.querySelector('.detail').style.display==='none'?'block':'none'">
       <div class="row" style="justify-content:space-between">
         <div class="row" style="flex:1;min-width:0;overflow:hidden">
@@ -399,22 +427,20 @@ function exportResults() {
   if(!RESULTS.length) return;
   const model = $('model').value;
   const extModel = $('extractModel').value;
-  const ws1 = XLSX.utils.json_to_sheet(RESULTS.map(r=>({
-    assessment_id:r.id, CHW1_unassisted:r.note, LLM_response:r.llm_response,
-    extraction_json:r.extract_raw,
-    tests_recommended:r.rec.join('; '), tests_unnecessary:r.unn.join('; '),
-    tests_missed:r.miss.join('; '), error:r.error,
-  })));
-  const counts={};
+  const ws1 = XLSX.utils.json_to_sheet(RESULTS.map(r=>{
+    const row = { assessment_id:r.id, CHW1_unassisted:r.note, LLM_response:r.llm_response, extraction_json:r.extract_raw };
+    TEST_FIELDS.forEach(f => { row[f] = r[f]; });
+    row.error = r.error;
+    return row;
+  }));
   const ok=RESULTS.filter(r=>!r.error).length;
-  RESULTS.forEach(r=>{
-    r.rec.forEach(t=>{if(!counts[t])counts[t]={r:0,u:0,m:0};counts[t].r++});
-    r.unn.forEach(t=>{if(!counts[t])counts[t]={r:0,u:0,m:0};counts[t].u++});
-    r.miss.forEach(t=>{if(!counts[t])counts[t]={r:0,u:0,m:0};counts[t].m++});
-  });
   const ws2 = XLSX.utils.json_to_sheet(
-    Object.entries(counts).sort((a,b)=>(b[1].r+b[1].u+b[1].m)-(a[1].r+a[1].u+a[1].m))
-      .map(([n,d])=>({test:n,total:d.r+d.u+d.m,pct:((d.r+d.u+d.m)/ok*100).toFixed(1)+'%',recommended:d.r,unnecessary:d.u,missed:d.m}))
+    TEST_FIELDS.map(f => ({
+      recommendation: FIELD_LABELS[f].label,
+      count: RESULTS.filter(r=>!r.error && r[f]===1).length,
+      total: ok,
+      pct: (ok ? (RESULTS.filter(r=>!r.error && r[f]===1).length/ok*100).toFixed(1) : 0) + '%',
+    }))
   );
   const ws3 = XLSX.utils.json_to_sheet([
     {param:'main_model',value:model},{param:'extraction_model',value:extModel},
