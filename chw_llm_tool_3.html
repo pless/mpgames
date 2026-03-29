@@ -265,8 +265,12 @@ async function callLLM(prompt, modelOverride) {
   if(!proxy) throw new Error('No proxy URL');
 
   const isReasoning = model.startsWith('o1') || model.startsWith('o3');
+  const isNew = model.startsWith('gpt-5');
   const body = { model, messages: [{role:'user', content: prompt}] };
-  if(!isReasoning) body.max_tokens = 1500;
+  if(!isReasoning) {
+    if(isNew) { body.max_completion_tokens = 1500; }
+    else { body.max_tokens = 1500; }
+  }
 
   const resp = await fetch(proxy, {
     method: 'POST',
