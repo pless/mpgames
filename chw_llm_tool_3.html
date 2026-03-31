@@ -44,7 +44,11 @@
   .log .err{color:var(--rd)} .log .ok{color:var(--gn)} .log .info{color:var(--ac2)}
   .card{background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:10px;margin-bottom:6px}
   .pill{display:inline-block;border-radius:9999px;padding:2px 8px;font-size:10px;font-weight:600;margin:1px 3px 1px 0}
-  .pill-r{background:#22c55e22;color:var(--gn)} .pill-u{background:#ef444422;color:var(--rd)} .pill-m{background:#f59e0b22;color:var(--or)}
+  .pill-r{background:#22c55e22;color:var(--gn)} .pill-u{background:#ef444422;color:var(--rd)} .pill-m{background:#f59e0b22;color:var(--or)} .pill-w{background:#f59e0b22;color:var(--or)}
+  .log .warn{color:var(--or)}
+  .meta{font-size:10px;color:var(--tx2);margin-top:4px;font-family:var(--mono)}
+  .meta span{margin-right:10px}
+  .meta .warn-tag{color:var(--or);font-weight:600}
   .grid5{display:grid;grid-template-columns:1fr 80px 55px 55px 55px;font-size:12px}
   .grid5 .hdr{padding:6px 4px;font-size:10px;font-weight:600;color:var(--tx2);text-transform:uppercase}
   .grid5 .cell{padding:5px 4px;border-top:1px solid var(--bd)}
@@ -116,6 +120,14 @@
       <div style="min-width:90px">
         <label>Concurrency</label>
         <input id="conc" type="number" value="3" min="1" max="10" style="width:60px">
+      </div>
+      <div style="min-width:100px">
+        <label>Timeout (sec)</label>
+        <input id="timeout" type="number" value="120" min="30" max="600" style="width:70px">
+      </div>
+      <div style="min-width:100px">
+        <label>Max Tokens</label>
+        <input id="maxTok" type="number" value="4096" min="256" max="16384" style="width:80px">
       </div>
     </div>
     <p class="hint">Key is sent from your browser → your proxy → OpenAI. Never stored.</p>
@@ -257,10 +269,13 @@ function handleFile(e) {
 function clearFile() { DATA=[]; RESULTS=[]; $('fileInfo').style.display='none'; $('fileInput').value=''; $('runBtn').disabled=true; $('resultsSection').style.display='none'; }
 
 // ── API ──
+// Returns { content, finish_reason, latency_ms, prompt_tokens, completion_tokens, warnings[] }
 async function callLLM(prompt, modelOverride) {
   const key = $('apiKey').value.trim();
   const model = modelOverride || $('model').value;
   const proxy = $('proxyUrl').value.trim();
+  const timeoutSec = parseInt($('timeout').value) || 120;
+  const maxTok = parseInt($('maxTok').value) || 4096;
   if(!key) throw new Error('No API key');
   if(!proxy) throw new Error('No proxy URL');
 
@@ -268,18 +283,66 @@ async function callLLM(prompt, modelOverride) {
   const isNew = model.startsWith('gpt-5');
   const body = { model, messages: [{role:'user', content: prompt}] };
   if(!isReasoning) {
-    if(isNew) { body.max_completion_tokens = 1500; }
-    else { body.max_tokens = 1500; }
+    if(isNew) { body.max_completion_tokens = maxTok; }
+    else { body.max_tokens = maxTok; }
   }
 
-  const resp = await fetch(proxy, {
-    method: 'POST',
-    headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${key}` },
-    body: JSON.stringify(body),
-  });
-  const d = await resp.json();
-  if(d.error) throw new Error(d.error.message || JSON.stringify(d.error));
-  return d.choices?.[0]?.message?.content || '';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutSec * 1000);
+  const t0 = performance.now();
+
+  let resp;
+  try {
+    resp = await fetch(proxy, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch(e) {
+    clearTimeout(timer);
+    if(e.name === 'AbortError') {
+      throw new Error(`TIMEOUT after ${timeoutSec}s — model likely still processing. Increase timeout or simplify prompt.`);
+    }
+    throw new Error(`Network error: ${e.message}`);
+  }
+  clearTimeout(timer);
+  const latency_ms = Math.round(performance.now() - t0);
+
+  let d;
+  try {
+    d = await resp.json();
+  } catch(e) {
+    throw new Error(`Non-JSON response (HTTP ${resp.status}) after ${latency_ms}ms — proxy may have timed out`);
+  }
+
+  if(d.error) {
+    const msg = d.error.message || JSON.stringify(d.error);
+    throw new Error(`API error: ${msg} (${latency_ms}ms)`);
+  }
+
+  const choice = d.choices?.[0];
+  const content = choice?.message?.content || '';
+  const finish_reason = choice?.finish_reason || 'unknown';
+  const prompt_tokens = d.usage?.prompt_tokens || 0;
+  const completion_tokens = d.usage?.completion_tokens || 0;
+
+  // Build warnings list
+  const warnings = [];
+  if(!content) {
+    warnings.push('EMPTY_RESPONSE: API returned no content');
+  }
+  if(finish_reason === 'length') {
+    warnings.push(`TRUNCATED: hit max_tokens (${maxTok}). Response is incomplete.`);
+  }
+  if(finish_reason !== 'stop' && finish_reason !== 'length' && content) {
+    warnings.push(`UNEXPECTED finish_reason="${finish_reason}"`);
+  }
+  if(!choice) {
+    warnings.push('NO_CHOICES: API response had no choices array');
+  }
+
+  return { content, finish_reason, latency_ms, prompt_tokens, completion_tokens, warnings };
 }
 
 const TEST_FIELDS = [
@@ -308,11 +371,15 @@ async function runPipeline() {
   const debug = $('debugMode').checked;
   const rows = debug ? DATA.slice(0,10) : DATA;
 
-  RESULTS = rows.map(r => ({...r, llm_response:'', extract_raw:'', ...EMPTY_TESTS, error:''}));
+  RESULTS = rows.map(r => ({
+    ...r, llm_response:'', extract_raw:'', ...EMPTY_TESTS, error:'',
+    warnings:[], finish_reason:'', latency_ms:0, prompt_tokens:0, completion_tokens:0,
+    ext_finish_reason:'', ext_latency_ms:0,
+  }));
   aborted = false;
   $('runBtn').disabled=true; $('stopBtn').style.display='inline-block';
   $('log').innerHTML=''; $('log').style.display='none'; $('resultsSection').style.display='none';
-  log(`Pipeline: ${rows.length} notes, main=${$('model').value}, extract=${$('extractModel').value}, conc=${conc}`, 'info');
+  log(`Pipeline: ${rows.length} notes, main=${$('model').value}, extract=${$('extractModel').value}, conc=${conc}, timeout=${$('timeout').value}s, max_tokens=${$('maxTok').value}`, 'info');
 
   let done = 0;
   const total = rows.length * 2;
@@ -321,15 +388,30 @@ async function runPipeline() {
   const mainModel = $('model').value;
   const extractModelVal = $('extractModel').value;
 
-  // Phase 1
+  // Phase 1: Main LLM call
   const q1 = rows.map((_,i)=>i);
   const w1 = async () => {
     while(q1.length && !aborted) {
       const i = q1.shift(); if(i===undefined) break;
       try {
-        const resp = await callLLM(mainP.replace(/\{note\}/g, rows[i].note), mainModel);
-        RESULTS[i].llm_response = resp;
-        log(`[${i+1}/${rows.length}] ✓ ${rows[i].id}`, 'ok');
+        const r = await callLLM(mainP.replace(/\{note\}/g, rows[i].note), mainModel);
+        RESULTS[i].llm_response = r.content;
+        RESULTS[i].finish_reason = r.finish_reason;
+        RESULTS[i].latency_ms = r.latency_ms;
+        RESULTS[i].prompt_tokens = r.prompt_tokens;
+        RESULTS[i].completion_tokens = r.completion_tokens;
+        RESULTS[i].warnings = r.warnings;
+
+        if(r.warnings.length) {
+          r.warnings.forEach(w => log(`[${i+1}/${rows.length}] ⚠ ${rows[i].id}: ${w}`, 'warn'));
+        }
+        if(!r.content) {
+          RESULTS[i].error = `Empty response (finish_reason=${r.finish_reason}, ${r.latency_ms}ms)`;
+          log(`[${i+1}/${rows.length}] ✗ ${rows[i].id}: Empty response after ${r.latency_ms}ms (finish=${r.finish_reason}, prompt_tok=${r.prompt_tokens}, compl_tok=${r.completion_tokens})`, 'err');
+        } else {
+          const tag = r.finish_reason === 'length' ? '⚠ TRUNCATED' : '✓';
+          log(`[${i+1}/${rows.length}] ${tag} ${rows[i].id} (${r.latency_ms}ms, ${r.completion_tokens} tok, finish=${r.finish_reason})`, r.finish_reason === 'length' ? 'warn' : 'ok');
+        }
       } catch(e) {
         RESULTS[i].error = e.message;
         log(`[${i+1}/${rows.length}] ✗ ${rows[i].id}: ${e.message}`, 'err');
@@ -340,20 +422,32 @@ async function runPipeline() {
   await Promise.all(Array.from({length:Math.min(conc,rows.length)}, w1));
 
   if(aborted){ finish('Stopped'); return; }
-  log(`Phase 1 done. Extracting tests with ${extractModelVal}...`, 'info');
 
-  // Phase 2
+  const emptyCount = RESULTS.filter(r => !r.llm_response && !r.error).length;
+  const truncCount = RESULTS.filter(r => r.finish_reason === 'length').length;
+  log(`Phase 1 done. ${emptyCount} empty responses, ${truncCount} truncated. Extracting tests with ${extractModelVal}...`, 'info');
+
+  // Phase 2: Extraction
   const q2 = rows.map((_,i)=>i).filter(i => RESULTS[i].llm_response && !RESULTS[i].error);
   const w2 = async () => {
     while(q2.length && !aborted) {
       const i = q2.shift(); if(i===undefined) break;
       try {
         const filled = extP.replace(/\{note\}/g,rows[i].note).replace(/\{feedback\}/g,RESULTS[i].llm_response);
-        const resp = await callLLM(filled, extractModelVal);
-        RESULTS[i].extract_raw = resp;
-        const p = parseTests(resp);
+        const r = await callLLM(filled, extractModelVal);
+        RESULTS[i].extract_raw = r.content;
+        RESULTS[i].ext_finish_reason = r.finish_reason;
+        RESULTS[i].ext_latency_ms = r.latency_ms;
+        if(r.warnings.length) {
+          r.warnings.forEach(w => log(`[ext ${i+1}] ⚠ ${w}`, 'warn'));
+          RESULTS[i].warnings.push(...r.warnings.map(w => `[extract] ${w}`));
+        }
+        const p = parseTests(r.content);
         Object.assign(RESULTS[i], p);
-      } catch(e) { log(`[ext ${i+1}] ✗ ${e.message}`, 'err'); }
+      } catch(e) {
+        log(`[ext ${i+1}] ✗ ${e.message}`, 'err');
+        RESULTS[i].warnings.push(`[extract] ${e.message}`);
+      }
       done++; setProg(done, total);
     }
   };
@@ -365,8 +459,12 @@ function finish(status) {
   $('runBtn').disabled=false; $('stopBtn').style.display='none';
   $('dlBtn').style.display = RESULTS.some(r=>r.llm_response) ? 'inline-block' : 'none';
   $('statusText').textContent = status;
-  const ok = RESULTS.filter(r=>!r.error).length, errs = RESULTS.filter(r=>r.error).length;
-  log(`${status}. ${ok} succeeded, ${errs} errors.`, 'info');
+  const ok = RESULTS.filter(r=>!r.error).length;
+  const errs = RESULTS.filter(r=>r.error).length;
+  const warns = RESULTS.filter(r=>r.warnings.length > 0).length;
+  const empty = RESULTS.filter(r=>!r.llm_response).length;
+  const trunc = RESULTS.filter(r=>r.finish_reason==='length').length;
+  log(`${status}. ${ok} succeeded, ${errs} errors, ${warns} with warnings, ${empty} empty, ${trunc} truncated.`, 'info');
   renderResults();
 }
 function stopPipeline() { aborted=true; }
@@ -381,12 +479,19 @@ const FIELD_LABELS = {
   recommend_removing_urinalysis: {label:'Remove urinalysis', cls:'pill-u'},
 };
 
+function statusColor(r) {
+  if(r.error) return 'rd';
+  if(r.warnings.length || r.finish_reason === 'length' || !r.llm_response) return 'or';
+  return 'gn';
+}
+
 function renderResults() {
   $('resultsSection').style.display='block';
   const ok = RESULTS.filter(r=>!r.error).length;
   const errs = RESULTS.filter(r=>r.error).length;
+  const warns = RESULTS.filter(r=>r.warnings.length>0 && !r.error).length;
 
-  // Summary: count how many notes got 1 for each field
+  // Summary
   let sh = '<div style="display:grid;grid-template-columns:1fr 80px 70px;font-size:12px;border:1px solid var(--bd);border-radius:6px;overflow:hidden">';
   sh += '<div class="hdr">Recommendation</div><div class="hdr">Count</div><div class="hdr">% of Notes</div>';
   TEST_FIELDS.forEach(f => {
@@ -399,7 +504,7 @@ function renderResults() {
   });
   sh += '</div>';
   $('summaryGrid').innerHTML = sh;
-  $('resultStats').textContent = `${ok} done, ${errs} errors`;
+  $('resultStats').textContent = `${ok} ok, ${warns} warnings, ${errs} errors`;
 
   // Per-note
   let nh = '';
@@ -408,17 +513,30 @@ function renderResults() {
       .filter(f => r[f] === 1)
       .map(f => `<span class="pill ${FIELD_LABELS[f].cls}">${FIELD_LABELS[f].label}</span>`)
       .join('');
-    nh += `<div class="card collapsible" style="border-left:3px solid var(--${r.error?'rd':'gn'})" onclick="this.querySelector('.detail').style.display=this.querySelector('.detail').style.display==='none'?'block':'none'">
+    const sc = statusColor(r);
+    const statusPills = [];
+    if(r.finish_reason === 'length') statusPills.push('<span class="pill pill-w">TRUNCATED</span>');
+    if(!r.llm_response && !r.error) statusPills.push('<span class="pill pill-w">EMPTY</span>');
+    if(r.error) statusPills.push('<span class="pill pill-u">ERROR</span>');
+
+    nh += `<div class="card collapsible" style="border-left:3px solid var(--${sc})" onclick="this.querySelector('.detail').style.display=this.querySelector('.detail').style.display==='none'?'block':'none'">
       <div class="row" style="justify-content:space-between">
         <div class="row" style="flex:1;min-width:0;overflow:hidden">
           <span style="font-weight:700;font-size:11px;flex-shrink:0">${esc(r.id)}</span>
           <span style="font-size:11px;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.note.slice(0,65))}…</span>
         </div>
-        <div class="row" style="flex-shrink:0">${pills}<span style="font-size:10px;color:var(--tx2);margin-left:4px">▶</span></div>
+        <div class="row" style="flex-shrink:0">${statusPills.join('')}${pills}<span style="font-size:10px;color:var(--tx2);margin-left:4px">▶</span></div>
       </div>
       <div class="detail" style="display:none">
+        <div class="meta">
+          <span>latency: ${r.latency_ms}ms</span>
+          <span>finish: ${r.finish_reason || '—'}</span>
+          <span>tokens: ${r.prompt_tokens}→${r.completion_tokens}</span>
+          ${r.ext_latency_ms ? `<span>ext: ${r.ext_latency_ms}ms (${r.ext_finish_reason})</span>` : ''}
+        </div>
         ${r.error ? `<div style="color:var(--rd);font-size:12px;margin-top:6px">Error: ${esc(r.error)}</div>` : ''}
-        <pre class="resp">${esc(r.llm_response)}</pre>
+        ${r.warnings.length ? `<div style="color:var(--or);font-size:11px;margin-top:4px">${r.warnings.map(w=>'⚠ '+esc(w)).join('<br>')}</div>` : ''}
+        <pre class="resp">${esc(r.llm_response || '(no response)')}</pre>
       </div>
     </div>`;
   });
@@ -432,8 +550,16 @@ function exportResults() {
   const model = $('model').value;
   const extModel = $('extractModel').value;
   const ws1 = XLSX.utils.json_to_sheet(RESULTS.map(r=>{
-    const row = { assessment_id:r.id, CHW1_unassisted:r.note, LLM_response:r.llm_response, extraction_json:r.extract_raw };
+    const row = {
+      assessment_id:r.id, CHW1_unassisted:r.note,
+      LLM_response:r.llm_response, extraction_json:r.extract_raw,
+    };
     TEST_FIELDS.forEach(f => { row[f] = r[f]; });
+    row.finish_reason = r.finish_reason;
+    row.latency_ms = r.latency_ms;
+    row.prompt_tokens = r.prompt_tokens;
+    row.completion_tokens = r.completion_tokens;
+    row.warnings = r.warnings.join('; ');
     row.error = r.error;
     return row;
   }));
@@ -450,6 +576,11 @@ function exportResults() {
     {param:'main_model',value:model},{param:'extraction_model',value:extModel},
     {param:'notes',value:RESULTS.length},
     {param:'errors',value:RESULTS.filter(r=>r.error).length},
+    {param:'empty_responses',value:RESULTS.filter(r=>!r.llm_response).length},
+    {param:'truncated',value:RESULTS.filter(r=>r.finish_reason==='length').length},
+    {param:'warnings',value:RESULTS.filter(r=>r.warnings.length>0).length},
+    {param:'timeout_sec',value:$('timeout').value},
+    {param:'max_tokens',value:$('maxTok').value},
     {param:'main_prompt',value:$('mainPrompt').value},
     {param:'extract_prompt',value:$('extractPrompt').value},
     {param:'timestamp',value:new Date().toISOString()},
